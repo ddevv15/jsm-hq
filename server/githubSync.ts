@@ -1,7 +1,7 @@
 // Polls GitHub, keeps the office's PRs in sync, and runs the review automations:
 // comments → tell the author; passed → tell the lead; merged → task done.
 
-import type { PullRequest } from "../src/data/types";
+import type { AgentReview, PullRequest, Task } from "../src/data/types";
 import { branchAgent, fetchPrs, OPEN_LIMIT, RateLimited, taskIdOf, toPullRequest } from "./github";
 import type { Hub } from "./hub";
 import { log } from "./lib/log";
@@ -28,6 +28,34 @@ const MIN_POLL_MS = 20_000; // never more often than this (nudges included)
 const MAX_POLL_MS = 5 * 60_000;
 const HQ_BUDGET = 1200; // GraphQL points per hour HQ may use; the rest of the 5,000 is left for the agents' gh commands
 const LOW_REMAINING = 800; // below this, poll at most every 2 minutes
+/**
+ * Plan 012: a PR passes only when the review tool and every reviewer agent approve. `toolReview`
+ * keeps the tool's own state; `review` is the combined one the office and the lead go by.
+ */
+export function withAgentReviews(pr: PullRequest, tasks: Task[]): PullRequest {
+  const toolReview = pr.toolReview ?? pr.review;
+  const reviews = tasks.filter((t) => t.kind === "review" && t.reviewOf === pr.number && (!pr.taskId || t.reviewFor === pr.taskId));
+  if (!reviews.length || pr.merged) return { ...pr, toolReview, agentReviews: undefined, review: toolReview };
+  const agentReviews: AgentReview[] = reviews.map((t) => ({
+    taskId: t.id,
+    agentId: t.ownerId,
+    role: t.reviewRole ?? "Reviewer",
+    verdict: t.status === "done" && t.verdict ? t.verdict : "pending",
+  }));
+  const changes = agentReviews.filter((r) => r.verdict === "changes");
+  const waiting = agentReviews.filter((r) => r.verdict === "pending");
+  let review = toolReview;
+  let reviewNote = pr.reviewNote ?? null;
+  if (changes.length) {
+    review = "changes-requested";
+    reviewNote = `${changes.map((r) => r.role).join(", ")}: changes requested`;
+  } else if (waiting.length && toolReview === "passed") {
+    review = "reviewing";
+    reviewNote = `Waiting for ${waiting.map((r) => r.role).join(", ")}`;
+  }
+  return { ...pr, toolReview, agentReviews, review, reviewNote };
+}
+
 const label = { coderabbit: "CodeRabbit", greptile: "Greptile", copilot: "Copilot", human: "The reviewer", custom: "The review check" } as const;
 
 export class GitHubSync {
@@ -62,6 +90,8 @@ export class GitHubSync {
       }
       if (e.type === "activity" && e.event.type === "agent.answered") this.nudge();
       if (e.type === "task.updated" && e.task.status === "in-review") this.nudge(1500);
+      // A reviewer's verdict changes the combined review state right away, without a GitHub poll.
+      if (e.type === "task.updated" && e.task.kind === "review") this.rescore();
     });
   }
 
@@ -112,7 +142,7 @@ export class GitHubSync {
         const task = taskId ? this.planner.task(taskId) : undefined;
         const fromBranch = branchAgent(gh.headRefName);
         const authorId = task?.ownerId ?? (fromBranch && team.has(fromBranch) ? fromBranch : "");
-        return toPullRequest(gh, wf.review.tool, wf.review.enabled, task?.id ?? taskId ?? "", authorId);
+        return withAgentReviews(toPullRequest(gh, wf.review.tool, wf.review.enabled, task?.id ?? taskId ?? "", authorId), this.hub.snap.tasks);
       });
       // PRs we showed as open that are now neither open nor recently merged were closed. A full page of
       // open PRs may have left older ones out, so then only the recently-closed list proves it.
@@ -151,12 +181,29 @@ export class GitHubSync {
     }
   }
 
+  /** Re-apply reviewer agents' verdicts to the PRs we already have (no GitHub call). */
+  private rescore() {
+    if (this.first) return;
+    const next = this.hub.snap.pullRequests.map((pr) => withAgentReviews(pr, this.hub.snap.tasks));
+    for (const pr of next) {
+      const old = this.prev.get(pr.number);
+      if (JSON.stringify(old) === JSON.stringify(pr)) continue;
+      this.hub.emit({ type: "pr.updated", pr: { ...pr } });
+      this.react(old, pr);
+    }
+    this.hub.snap.pullRequests = next;
+    this.prev = new Map(next.map((p) => [p.number, p]));
+  }
+
   /** Keep the task board in line with its PR. */
   private syncTask(pr: PullRequest) {
     const task = pr.taskId ? this.planner.task(pr.taskId) : undefined;
     if (!task || pr.closed) return;
     if (pr.merged && task.status !== "done") this.planner.updateTask(task.id, { status: "done", prNumber: pr.number });
-    else if (!pr.merged && (task.status === "todo" || task.status === "in-progress")) this.planner.updateTask(task.id, { status: "in-review", prNumber: pr.number });
+    else if (!pr.merged && (task.status === "todo" || task.status === "in-progress") && !pr.agentReviews?.some((r) => r.verdict === "changes")) {
+      this.planner.updateTask(task.id, { status: "in-review", prNumber: pr.number });
+      this.planner.requestReviews(task);
+    }
     else if (!pr.merged && task.prNumber !== pr.number) this.planner.updateTask(task.id, { prNumber: pr.number });
   }
 
@@ -179,7 +226,10 @@ export class GitHubSync {
 
     if (pr.review === "reviewing" && old?.review !== "reviewing") hub.activity("review.started", null, `${tool} is reviewing #${pr.number}`);
 
-    const newComments = pr.review === "changes-requested" && (old?.review !== "changes-requested" || pr.openComments > (old?.openComments ?? 0));
+    // The tool's comments only; reviewer agents' findings reach the author from the planner.
+    const toolNow = pr.toolReview ?? pr.review;
+    const toolBefore = old ? (old.toolReview ?? old.review) : undefined;
+    const newComments = toolNow === "changes-requested" && (toolBefore !== "changes-requested" || pr.openComments > (old?.openComments ?? 0));
     if (newComments) {
       const n = pr.openComments;
       hub.activity("review.changes", who, `${tool} left ${n || "new"} comment${n === 1 ? "" : "s"} on #${pr.number}`);
@@ -192,7 +242,7 @@ export class GitHubSync {
     }
 
     if (pr.review === "passed" && old?.review !== "passed") {
-      hub.activity("review.passed", who, `${tool} approved #${pr.number}`);
+      hub.activity("review.passed", who, pr.agentReviews?.length ? `${tool} and ${pr.agentReviews.map((r) => r.role).join(", ")} approved #${pr.number}` : `${tool} approved #${pr.number}`);
       if (lead) this.planner.notify(lead.id, passedNotice(pr, hub.name(who), hub.snap.config.workflow.merge.by));
     }
 
