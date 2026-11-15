@@ -95,7 +95,7 @@ export function TopBar() {
       </div>
 
       <div
-        className="hidden items-center gap-2 whitespace-nowrap border-[3px] border-ink bg-navy px-2.5 py-0.5 text-[15px] text-cream lg:flex"
+        className="hidden items-center gap-2 whitespace-nowrap border-[3px] border-line bg-navy px-2.5 py-0.5 text-[15px] text-snow lg:flex"
         title="Each agent runs in its own isolated Docker Sandbox (microVM)"
       >
         <span>
@@ -116,8 +116,7 @@ export function TopBar() {
       )}
       <div className="flex gap-1.5">
         <button
-          className="btn text-[14px]"
-          style={attention ? { background: "#ffec27" } : undefined}
+          className={`btn text-[14px] ${attention ? "bg-yellow" : ""}`}
           aria-pressed={drawerKind === "actions"}
           onClick={() => toggle("actions", ui.openActions)}
           title="Everything waiting on you"

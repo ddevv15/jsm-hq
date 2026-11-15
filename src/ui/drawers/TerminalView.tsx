@@ -166,13 +166,13 @@ export function TerminalView({ agentId, autoFocus = false }: { agentId: string; 
       {!notice && (
         <div
           aria-hidden
-          className={`pointer-events-none absolute right-3 top-2 z-10 border-2 border-ink px-1.5 py-0.5 text-[12px] ${typing ? "bg-blue text-ink" : "bg-cream text-ink"}`}
+          className={`pointer-events-none absolute right-3 top-2 z-10 border-2 border-line px-1.5 py-0.5 text-[12px] ${typing ? "bg-blue text-ink" : "bg-cream text-ink"}`}
         >
           {typing ? "Typing to the terminal · click outside to stop" : "Click to type"}
         </div>
       )}
       {notice && (
-        <div role="status" className="absolute bottom-3 left-1/2 z-10 max-w-[90%] -translate-x-1/2 border-2 border-ink bg-yellow px-2 py-1 text-[13px] text-ink">
+        <div role="status" className="absolute bottom-3 left-1/2 z-10 max-w-[90%] -translate-x-1/2 border-2 border-line bg-yellow px-2 py-1 text-[13px] text-ink">
           {notice}
         </div>
       )}

@@ -11,7 +11,7 @@ import { TerminalDrawer } from "./TerminalDrawer";
 /** `maximizable` is off for the Boards modal: it's already near full-screen, and the setting is shared with the side drawers. */
 export function DrawerHeader({ children, maximizable = true }: { children: ReactNode; maximizable?: boolean }) {
   return (
-    <div className="flex items-center gap-2.5 border-b-[3px] border-ink px-3 py-2">
+    <div className="flex items-center gap-2.5 border-b-[3px] border-line px-3 py-2">
       <div className="flex min-w-0 flex-1 items-center gap-2.5">{children}</div>
       {maximizable && <MaximizeButton />}
       <button className="btn px-2.5" aria-label="Close" onClick={() => ui.closeDrawer()}>
@@ -75,7 +75,7 @@ function ResizeHandle() {
       onPointerCancel={up}
       onDoubleClick={() => ui.setDrawerWidth(DRAWER_DEFAULT)}
     >
-      <div className="my-auto h-12 w-[4px] bg-ink opacity-0 transition-opacity group-hover:opacity-60" />
+      <div className="my-auto h-12 w-[4px] bg-line opacity-0 transition-opacity group-hover:opacity-60" />
     </div>
   );
 }
