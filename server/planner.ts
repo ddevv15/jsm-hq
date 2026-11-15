@@ -1,7 +1,8 @@
 // Boards, tasks, assignments and messages. Used by both the Team MCP tools
 // (agents) and the browser commands (you), so both follow the same rules.
 
-import type { Board, Task, TaskStatus } from "../src/data/types";
+import { kindOf } from "../src/data/roles";
+import type { Board, ReviewVerdict, Task, TaskKind, TaskStatus } from "../src/data/types";
 import type { Hub } from "./hub";
 import type { ActionItems } from "./actionItems";
 import type { Inbox } from "./inbox";
@@ -13,9 +14,16 @@ export interface NewTask {
   files?: string[];
   doneWhen?: string;
   needs?: string[];
+  kind?: TaskKind;
+  reviewOf?: number | null;
+  reviewFor?: string | null;
+  reviewRole?: string | null;
 }
 
-export type TaskPatch = Partial<Pick<Task, "title" | "description" | "files" | "doneWhen" | "needs" | "status" | "boardId" | "note" | "prNumber">>;
+export type TaskPatch = Partial<Pick<Task, "title" | "description" | "files" | "doneWhen" | "needs" | "status" | "boardId" | "note" | "prNumber" | "verdict">>;
+
+/** Senders that aren't agents: the user, and HQ itself. */
+const actor = (id: string) => (id === "you" || id === "hq" ? null : id);
 
 const now = () => new Date().toISOString();
 
@@ -83,10 +91,12 @@ export class Planner {
     const task: Task = {
       id, boardId: board.id, title: input.title.trim().slice(0, 120), ownerId: null, status: "todo",
       needs: input.needs ?? [], prNumber: null, description: input.description ?? "", files: input.files ?? [], doneWhen: input.doneWhen ?? "", note: null,
+      kind: input.kind ?? "build",
+      ...(input.kind === "review" ? { reviewOf: input.reviewOf ?? null, reviewFor: input.reviewFor ?? null, reviewRole: input.reviewRole ?? null, verdict: null } : {}),
     };
     this.snap.tasks.push(task);
     this.hub.emit({ type: "task.updated", task: { ...task } });
-    this.hub.activity("task.created", byId === "you" ? null : byId, `${this.hub.name(byId)} added ${task.id} ${task.title}`);
+    this.hub.activity("task.created", actor(byId), `${this.hub.name(byId)} added ${task.id} ${task.title}`);
     this.hub.planChanged();
     return task;
   }
@@ -110,22 +120,30 @@ export class Planner {
     if (!task) throw new Error(`No task ${taskId}`);
     if (!agentId) throw new Error(`No agent "${agentRef}". Team: ${this.snap.config.team.map((a) => a.id).join(", ")}`);
     const agent = this.hub.cfg(agentId)!;
+    // Plan 012: builders build, reviewers review.
+    const isReview = task.kind === "review";
+    const kind = kindOf(agent);
+    if (isReview && kind !== "reviewer") throw new Error(`${task.id} is a review task. Give it to a reviewer: ${this.namesOf("reviewer") || "the team has none"}.`);
+    if (!isReview && kind === "reviewer") throw new Error(`${agent.name} is a reviewer and only takes review tasks. Builders: ${this.namesOf("builder") || "none"}.`);
     task.ownerId = agentId;
     if (task.status === "done") task.status = "todo";
     this.hub.emit({ type: "task.updated", task: { ...task } });
     this.hub.setStatus(agentId, { currentTaskId: task.id });
     this.hub.planChanged();
-    this.hub.activity("task.assigned", byId === "you" ? null : byId, `${this.hub.name(byId)} assigned ${task.id} ${task.title} to ${agent.name}`);
+    this.hub.activity("task.assigned", actor(byId), `${this.hub.name(byId)} assigned ${task.id} ${task.title} to ${agent.name}`);
     const by = byId === "you" ? "The user (your human)" : this.hub.name(byId);
-    const text = `${by} assigned you ${task.id} (${task.title}). Pull main, start ${task.id}. Call the hq get_my_task tool for the details.`;
+    const text = isReview
+      ? `${by} assigned you ${task.id}: review PR #${task.reviewOf}. Call the hq get_my_task tool for the details.`
+      : `${by} assigned you ${task.id} (${task.title}). Pull main, start ${task.id}. Call the hq get_my_task tool for the details.`;
     this.record(byId, agentId, `Start ${task.id}: ${task.title}`);
     this.inbox.push(agentId, { fromId: byId, kind: "assign", text });
     return task;
   }
 
-  setStatus(agentId: string, status: Extract<TaskStatus, "in-progress" | "blocked" | "in-review" | "done">, note?: string, prNumber?: number): Task {
+  setStatus(agentId: string, status: Extract<TaskStatus, "in-progress" | "blocked" | "in-review" | "done">, note?: string, prNumber?: number, verdict?: ReviewVerdict): Task {
     const task = this.currentTask(agentId);
     if (!task) throw new Error("You have no task. Ask the lead for one.");
+    if (task.kind === "review") return this.finishReview(agentId, task, status, note, verdict);
     task.status = status;
     task.note = note?.slice(0, 300) || null;
     if (prNumber) task.prNumber = prNumber;
@@ -140,6 +158,109 @@ export class Planner {
     const lead = this.snap.config.team.find((a) => a.isLead);
     if (lead && lead.id !== agentId && (status === "blocked" || status === "in-review" || status === "done"))
       this.message(agentId, lead.id, `${task.id} ${words}${note ? `: ${note}` : ""}${prNumber ? ` (PR #${prNumber})` : ""}`);
+    if (status === "in-review" && task.prNumber) this.requestReviews(task);
+    return task;
+  }
+
+  // ------------------------------------------------------------ reviews (plan 012)
+
+  private namesOf(kind: "builder" | "reviewer"): string {
+    return this.snap.config.team.filter((a) => kindOf(a) === kind).map((a) => a.name).join(", ");
+  }
+
+  /** The reviewer roles on the team, each once ("QA", "Security"). */
+  private reviewerRoles(): string[] {
+    return [...new Set(this.snap.config.team.filter((a) => kindOf(a) === "reviewer").map((a) => a.role))];
+  }
+
+  /** Review tasks for a build task's current PR. */
+  reviewsFor(buildTaskId: string): Task[] {
+    return this.snap.tasks.filter((t) => t.kind === "review" && t.reviewFor === buildTaskId);
+  }
+
+  /**
+   * A builder's PR is ready for review: make sure each reviewer role has a review task for it,
+   * and hand it to a free reviewer of that role (or queue it). A review that asked for changes is
+   * re-opened for the same reviewer once the author sends the PR back.
+   */
+  requestReviews(build: Task) {
+    if (build.kind === "review" || !build.prNumber) return;
+    for (const role of this.reviewerRoles()) {
+      const existing = this.reviewsFor(build.id).find((t) => t.reviewRole === role);
+      if (existing) {
+        if (existing.status !== "done" || existing.verdict !== "changes") continue; // still open, or already approved
+        Object.assign(existing, { status: "todo", verdict: null, note: null, reviewOf: build.prNumber });
+        this.hub.emit({ type: "task.updated", task: { ...existing } });
+        const owner = existing.ownerId && this.hub.cfg(existing.ownerId) ? existing.ownerId : null;
+        if (owner && !this.busyReviewer(owner)) this.assign(existing.id, owner, "hq");
+        else this.placeReview(existing);
+        continue;
+      }
+      const review = this.createTask(
+        {
+          boardId: build.boardId,
+          title: `Review #${build.prNumber}: ${build.title}`.slice(0, 120),
+          description: `${role} review of PR #${build.prNumber} for ${build.id} (${build.title}).${build.description ? `\n\nThe task: ${build.description}` : ""}`,
+          doneWhen: build.doneWhen,
+          kind: "review",
+          reviewOf: build.prNumber,
+          reviewFor: build.id,
+          reviewRole: role,
+        },
+        "hq",
+      );
+      this.placeReview(review);
+    }
+  }
+
+  private busyReviewer(agentId: string): boolean {
+    return this.snap.tasks.some((t) => t.ownerId === agentId && t.kind === "review" && t.status !== "done");
+  }
+
+  /** Give a review task to a free reviewer of its role, or leave it queued until one is free. */
+  private placeReview(task: Task) {
+    const free = this.snap.config.team.find((a) => kindOf(a) === "reviewer" && a.role === task.reviewRole && !this.busyReviewer(a.id));
+    if (free) this.assign(task.id, free.id, "hq");
+    else this.hub.activity("task.created", null, `${task.id} is waiting for a free ${task.reviewRole} reviewer`);
+  }
+
+  /** A reviewer reports on its review task. */
+  private finishReview(agentId: string, task: Task, status: "in-progress" | "blocked" | "in-review" | "done", note?: string, verdict?: ReviewVerdict): Task {
+    if (status === "in-review") throw new Error("Reviewers don't open PRs. When you've reviewed it, call set_my_status done with a verdict.");
+    if (status === "done" && !verdict) throw new Error("Give your verdict: set_my_status done with verdict approve or changes, and a short summary in note.");
+    task.status = status;
+    task.note = note?.slice(0, 1500) || null;
+    const name = this.hub.name(agentId);
+    if (status !== "done") {
+      this.hub.setStatus(agentId, { currentTaskId: task.id });
+      this.hub.emit({ type: "task.updated", task: { ...task } });
+      this.hub.planChanged();
+      this.hub.activity(status === "blocked" ? "agent.needs-input" : "task.started", agentId, `${name} ${status === "blocked" ? "is blocked on" : "started"} ${task.id}${note ? `: ${note}` : ""}`);
+      return task;
+    }
+    task.verdict = verdict ?? null;
+    this.hub.setStatus(agentId, { currentTaskId: null });
+    this.hub.emit({ type: "task.updated", task: { ...task } });
+    this.hub.planChanged();
+    const pr = `PR #${task.reviewOf}`;
+    this.hub.activity(verdict === "approve" ? "review.passed" : "review.changes", agentId, `${name} (${task.reviewRole}) ${verdict === "approve" ? "approved" : "asked for changes on"} ${pr}`);
+    const build = task.reviewFor ? this.task(task.reviewFor) : undefined;
+    if (verdict === "changes" && build) {
+      if (build.status === "in-review") {
+        build.status = "in-progress";
+        this.hub.emit({ type: "task.updated", task: { ...build } });
+      }
+      if (build.ownerId)
+        this.notify(
+          build.ownerId,
+          `${name} (${task.reviewRole}) reviewed your ${pr} (${build.id}) and asked for changes:\n${note || "See their comment on the PR."}\n\n` +
+            `Their comment is on the PR too (\`gh pr view ${task.reviewOf} --comments\`). Fix it on the same branch, push, then call set_my_status in-review with PR ${task.reviewOf} so they re-check.`,
+        );
+    }
+    // Free again: take the next queued review of this reviewer's role.
+    const role = this.hub.cfg(agentId)?.role;
+    const next = this.snap.tasks.find((t) => t.kind === "review" && !t.ownerId && t.status === "todo" && t.reviewRole === role);
+    if (next) this.assign(next.id, agentId, "hq");
     return task;
   }
 
