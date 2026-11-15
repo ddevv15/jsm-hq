@@ -1,3 +1,4 @@
+import { roleByLabel } from "../roles";
 import type { AgentConfig, Board, HqConfig, SandboxSettings, Task } from "../types";
 
 export interface Preset {
@@ -34,6 +35,7 @@ function agent(
     name,
     role,
     isLead,
+    kind: isLead ? "lead" : (roleByLabel(role)?.kind ?? "builder"),
     cli: "claude",
     model: isLead ? "Opus" : "Sonnet",
     mode: "sandbox",
