@@ -190,9 +190,9 @@ function buildServer(hub: Hub, planner: Planner, me: string): McpServer {
         verdict: z.enum(["approve", "changes"]).optional().describe("Review tasks only: your verdict"),
         commit: z
           .string()
-          .regex(/^[0-9a-fA-F]{7,40}$/)
+          .regex(/^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/)
           .optional()
-          .describe("Review tasks only: the commit you reviewed (`git rev-parse HEAD` on the PR checkout). Required to approve."),
+          .describe("Review tasks only: the full commit SHA you reviewed (`git rev-parse HEAD` on the PR checkout). Required to approve."),
       },
     },
     guard(({ status, note, prNumber, verdict, commit }: { status: "in-progress" | "blocked" | "in-review" | "done"; note?: string; prNumber?: number; verdict?: "approve" | "changes"; commit?: string }) => {

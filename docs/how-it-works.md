@@ -47,8 +47,8 @@ HQ reads your PRs, checks and review comments with your `gh` login, about every 
 
 - It matches a PR to its task by the `[TASK-ID]` at the start of the title.
 - New review comments are sent to the PR's author to fix.
-- With reviewer agents on the team, each one writes its findings on the PR and gives HQ its verdict. If one asks for changes, the author gets the findings; when the author sends the PR back, that reviewer checks it again.
-- When a PR passes review (the review tool **and** every reviewer agent), the lead is told it's ready to merge.
+- With reviewer agents on the team, HQ gives each PR one review task per reviewer role (QA, Security…), handed to a free reviewer of that role. The reviewer writes its findings on the PR and gives HQ its verdict. If it asks for changes, the author gets the findings; when the author sends the PR back, the same reviewer checks it again.
+- When a PR passes review (the review tool **and** an approval of the PR's current commit from each reviewer role's review task), the lead is told it's ready to merge.
 - When a PR is merged, its task is marked done.
 - If a PR has merge conflicts with `main`, the author is told to fix them.
 

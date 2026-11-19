@@ -43,8 +43,10 @@ const LOW_REMAINING = 800; // below this, poll at most every 2 minutes
  * - An approval counts only for the commit the reviewer checked out; new commits make it pending.
  */
 export function withAgentReviews(pr: PullRequest, tasks: Task[], team: AgentConfig[]): PullRequest {
+  // A cached PR (rescore) carries the combined state; always start again from the tool's own.
   const toolReview = pr.toolReview ?? pr.review;
-  const plain: PullRequest = { ...pr, toolReview, agentReviews: undefined, review: toolReview };
+  const toolNote = pr.toolNote !== undefined ? pr.toolNote : (pr.reviewNote ?? null);
+  const plain: PullRequest = { ...pr, toolReview, toolNote, agentReviews: undefined, review: toolReview, reviewNote: toolNote };
   if (pr.merged || pr.closed) return plain;
   const buildTask = pr.taskId ? tasks.find((t) => t.id === pr.taskId && t.kind !== "review") : undefined;
   const linkedTo = buildTask?.id ?? null;
@@ -64,7 +66,7 @@ export function withAgentReviews(pr: PullRequest, tasks: Task[], team: AgentConf
   const changes = agentReviews.filter((r) => r.verdict === "changes");
   const waiting = agentReviews.filter((r) => r.verdict === "pending");
   let review = toolReview;
-  let reviewNote = pr.reviewNote ?? null;
+  let reviewNote = toolNote;
   if (changes.length) {
     review = "changes-requested";
     reviewNote = `${changes.map((r) => r.role).join(", ")}: changes requested`;
@@ -73,7 +75,7 @@ export function withAgentReviews(pr: PullRequest, tasks: Task[], team: AgentConf
     const unlinked = missing.length && !buildTask ? " (no task linked: the lead can create a review task)" : "";
     reviewNote = `Waiting for ${waiting.map((r) => r.role).join(", ")}${unlinked}`;
   }
-  return { ...pr, toolReview, agentReviews, review, reviewNote };
+  return { ...pr, toolReview, toolNote, agentReviews, review, reviewNote };
 }
 
 const label = { coderabbit: "CodeRabbit", greptile: "Greptile", copilot: "Copilot", human: "The reviewer", custom: "The review check" } as const;

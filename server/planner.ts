@@ -27,9 +27,12 @@ const actor = (id: string) => (id === "you" || id === "hq" ? null : id);
 
 const now = () => new Date().toISOString();
 
-/** True when a reviewer's commit (full or short SHA) is the PR's head. Unknown on either side is false. */
+/** A full commit SHA (SHA-1 or SHA-256). Short SHAs aren't accepted: a prefix can be collided on purpose. */
+export const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** True when a reviewer's commit is exactly the PR's head. Unknown on either side is false. */
 export function sameCommit(reviewed: string | null | undefined, head: string | null | undefined): boolean {
-  return !!reviewed && !!head && reviewed.length >= 7 && head.toLowerCase().startsWith(reviewed.toLowerCase());
+  return !!reviewed && !!head && reviewed.toLowerCase() === head.toLowerCase();
 }
 
 export class Planner {
@@ -109,6 +112,10 @@ export class Planner {
   updateTask(id: string, patch: TaskPatch): Task {
     const task = this.task(id);
     if (!task) throw new Error(`No task ${id}`);
+    // A review finishes only through its reviewer's verdict (finishReview); done without one would
+    // leave the PR waiting on a review nobody re-opens.
+    if (task.kind === "review" && patch.status === "done" && task.status !== "done" && !(patch.verdict ?? task.verdict))
+      throw new Error(`${task.id} is a review: it's done when its reviewer gives a verdict (set_my_status done with verdict approve or changes).`);
     Object.assign(task, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
     if (task.status === "done") {
       for (const a of this.snap.agents) if (a.currentTaskId === task.id) this.hub.setStatus(a.agentId, { currentTaskId: null });
@@ -258,8 +265,8 @@ export class Planner {
     if (status === "in-review") throw new Error("Reviewers don't open PRs. When you've reviewed it, call set_my_status done with a verdict.");
     if (status === "done" && !verdict) throw new Error("Give your verdict: set_my_status done with verdict approve or changes, and a short summary in note.");
     const reviewed = commit?.trim().toLowerCase();
-    if (status === "done" && verdict === "approve" && !(reviewed && /^[0-9a-f]{7,40}$/.test(reviewed)))
-      throw new Error(`To approve, give the commit you reviewed: commit = \`git rev-parse HEAD\` on the PR #${task.reviewOf} checkout.`);
+    if (status === "done" && verdict === "approve" && !(reviewed && FULL_SHA.test(reviewed)))
+      throw new Error(`To approve, give the full commit you reviewed: commit = \`git rev-parse HEAD\` (not --short) on the PR #${task.reviewOf} checkout.`);
     task.status = status;
     task.note = note?.slice(0, 1500) || null;
     const name = this.hub.name(agentId);
@@ -284,6 +291,7 @@ export class Planner {
       if (build.status === "in-review") {
         build.status = "in-progress";
         this.hub.emit({ type: "task.updated", task: { ...build } });
+        this.hub.planChanged();
       }
       if (build.ownerId)
         this.notify(
