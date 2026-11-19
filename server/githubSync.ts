@@ -1,7 +1,8 @@
 // Polls GitHub, keeps the office's PRs in sync, and runs the review automations:
 // comments → tell the author; passed → tell the lead; merged → task done.
 
-import type { AgentReview, PullRequest, Task } from "../src/data/types";
+import { kindOf } from "../src/data/roles";
+import type { AgentConfig, AgentReview, PullRequest, Task } from "../src/data/types";
 import { branchAgent, fetchPrs, OPEN_LIMIT, RateLimited, taskIdOf, toPullRequest } from "./github";
 import type { Hub } from "./hub";
 import { log } from "./lib/log";
@@ -31,17 +32,34 @@ const LOW_REMAINING = 800; // below this, poll at most every 2 minutes
 /**
  * Plan 012: a PR passes only when the review tool and every reviewer agent approve. `toolReview`
  * keeps the tool's own state; `review` is the combined one the office and the lead go by.
+ *
+ * Fails closed:
+ * - A builder's PR (or one tied to a build task) needs a review from every reviewer role on the
+ *   team, even before HQ has created those review tasks, so it can't pass in the gap.
+ * - A review counts only for the PR and task it was made for: an agent-reported PR number can't
+ *   lend a review to an unrelated PR.
+ * - An approval counts only for the commit it was given on; new commits make it pending again.
  */
-export function withAgentReviews(pr: PullRequest, tasks: Task[]): PullRequest {
+export function withAgentReviews(pr: PullRequest, tasks: Task[], team: AgentConfig[]): PullRequest {
   const toolReview = pr.toolReview ?? pr.review;
-  const reviews = tasks.filter((t) => t.kind === "review" && t.reviewOf === pr.number && (!pr.taskId || t.reviewFor === pr.taskId));
-  if (!reviews.length || pr.merged) return { ...pr, toolReview, agentReviews: undefined, review: toolReview };
-  const agentReviews: AgentReview[] = reviews.map((t) => ({
-    taskId: t.id,
-    agentId: t.ownerId,
-    role: t.reviewRole ?? "Reviewer",
-    verdict: t.status === "done" && t.verdict ? t.verdict : "pending",
-  }));
+  const plain: PullRequest = { ...pr, toolReview, agentReviews: undefined, review: toolReview };
+  if (pr.merged || pr.closed) return plain;
+  const taskId = pr.taskId || null;
+  const reviews = tasks.filter((t) => t.kind === "review" && t.reviewOf === pr.number && (t.reviewFor ?? null) === taskId);
+  const buildTask = taskId ? tasks.find((t) => t.id === taskId && t.kind !== "review") : undefined;
+  const byBuilder = team.some((a) => a.id === pr.authorId && kindOf(a) === "builder");
+  const roles = byBuilder || buildTask ? [...new Set(team.filter((a) => kindOf(a) === "reviewer").map((a) => a.role))] : [];
+  const missing = roles.filter((role) => !reviews.some((t) => t.reviewRole === role));
+  if (!reviews.length && !missing.length) return plain;
+
+  const agentReviews: AgentReview[] = [
+    ...reviews.map((t): AgentReview => {
+      const given = t.status === "done" ? t.verdict : null;
+      const current = given === "approve" ? !!pr.headSha && t.reviewedSha === pr.headSha : true;
+      return { taskId: t.id, agentId: t.ownerId, role: t.reviewRole ?? "Reviewer", verdict: given && current ? given : "pending" };
+    }),
+    ...missing.map((role): AgentReview => ({ taskId: `missing:${role}`, agentId: null, role, verdict: "pending" })),
+  ];
   const changes = agentReviews.filter((r) => r.verdict === "changes");
   const waiting = agentReviews.filter((r) => r.verdict === "pending");
   let review = toolReview;
@@ -51,7 +69,8 @@ export function withAgentReviews(pr: PullRequest, tasks: Task[]): PullRequest {
     reviewNote = `${changes.map((r) => r.role).join(", ")}: changes requested`;
   } else if (waiting.length && toolReview === "passed") {
     review = "reviewing";
-    reviewNote = `Waiting for ${waiting.map((r) => r.role).join(", ")}`;
+    const unlinked = missing.length && !buildTask ? " (no task linked: the lead can create a review task)" : "";
+    reviewNote = `Waiting for ${waiting.map((r) => r.role).join(", ")}${unlinked}`;
   }
   return { ...pr, toolReview, agentReviews, review, reviewNote };
 }
@@ -142,7 +161,7 @@ export class GitHubSync {
         const task = taskId ? this.planner.task(taskId) : undefined;
         const fromBranch = branchAgent(gh.headRefName);
         const authorId = task?.ownerId ?? (fromBranch && team.has(fromBranch) ? fromBranch : "");
-        return withAgentReviews(toPullRequest(gh, wf.review.tool, wf.review.enabled, task?.id ?? taskId ?? "", authorId), this.hub.snap.tasks);
+        return withAgentReviews(toPullRequest(gh, wf.review.tool, wf.review.enabled, task?.id ?? taskId ?? "", authorId), this.hub.snap.tasks, this.hub.snap.config.team);
       });
       // PRs we showed as open that are now neither open nor recently merged were closed. A full page of
       // open PRs may have left older ones out, so then only the recently-closed list proves it.
@@ -184,7 +203,7 @@ export class GitHubSync {
   /** Re-apply reviewer agents' verdicts to the PRs we already have (no GitHub call). */
   private rescore() {
     if (this.first) return;
-    const next = this.hub.snap.pullRequests.map((pr) => withAgentReviews(pr, this.hub.snap.tasks));
+    const next = this.hub.snap.pullRequests.map((pr) => withAgentReviews(pr, this.hub.snap.tasks, this.hub.snap.config.team));
     for (const pr of next) {
       const old = this.prev.get(pr.number);
       if (JSON.stringify(old) === JSON.stringify(pr)) continue;
@@ -198,13 +217,20 @@ export class GitHubSync {
   /** Keep the task board in line with its PR. */
   private syncTask(pr: PullRequest) {
     const task = pr.taskId ? this.planner.task(pr.taskId) : undefined;
-    if (!task || pr.closed) return;
-    if (pr.merged && task.status !== "done") this.planner.updateTask(task.id, { status: "done", prNumber: pr.number });
-    else if (!pr.merged && (task.status === "todo" || task.status === "in-progress") && !pr.agentReviews?.some((r) => r.verdict === "changes")) {
-      this.planner.updateTask(task.id, { status: "in-review", prNumber: pr.number });
-      this.planner.requestReviews(task);
+    if (!task || task.kind === "review" || pr.closed) return;
+    if (pr.merged) {
+      if (task.status !== "done") this.planner.updateTask(task.id, { status: "done", prNumber: pr.number });
+      return;
     }
-    else if (!pr.merged && task.prNumber !== pr.number) this.planner.updateTask(task.id, { prNumber: pr.number });
+    if ((task.status === "todo" || task.status === "in-progress") && !pr.agentReviews?.some((r) => r.verdict === "changes")) {
+      this.planner.updateTask(task.id, { status: "in-review", prNumber: pr.number });
+      this.planner.requestReviews(task, pr.headSha);
+      return;
+    }
+    // GitHub, not the agent, decides which PR is the task's. On a new PR number or new commits,
+    // requestReviews moves the reviews to that PR and re-opens approvals of an older commit.
+    if (task.prNumber !== pr.number) this.planner.updateTask(task.id, { prNumber: pr.number });
+    if (task.status === "in-review") this.planner.requestReviews(task, pr.headSha);
   }
 
   private react(old: PullRequest | undefined, pr: PullRequest) {

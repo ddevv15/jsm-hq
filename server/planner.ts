@@ -144,6 +144,8 @@ export class Planner {
     const task = this.currentTask(agentId);
     if (!task) throw new Error("You have no task. Ask the lead for one.");
     if (task.kind === "review") return this.finishReview(agentId, task, status, note, verdict);
+    const claimed = prNumber ? this.snap.pullRequests.find((p) => p.number === prNumber) : undefined;
+    if (claimed?.taskId && claimed.taskId !== task.id) throw new Error(`PR #${prNumber} belongs to ${claimed.taskId}, not ${task.id}. Give the number of the PR you opened for ${task.id}.`);
     task.status = status;
     task.note = note?.slice(0, 300) || null;
     if (prNumber) task.prNumber = prNumber;
@@ -178,29 +180,51 @@ export class Planner {
     return this.snap.tasks.filter((t) => t.kind === "review" && t.reviewFor === buildTaskId);
   }
 
+  /** The last head commit GitHub reported for a PR, if HQ has seen it. */
+  private headOf(prNumber: number | null | undefined): string | undefined {
+    return prNumber ? this.snap.pullRequests.find((p) => p.number === prNumber)?.headSha : undefined;
+  }
+
+  private reviewText(build: Task, role: string) {
+    return {
+      title: `Review #${build.prNumber}: ${build.title}`.slice(0, 120),
+      description: `${role} review of PR #${build.prNumber} for ${build.id} (${build.title}).${build.description ? `\n\nThe task: ${build.description}` : ""}`,
+    };
+  }
+
   /**
    * A builder's PR is ready for review: make sure each reviewer role has a review task for it,
-   * and hand it to a free reviewer of that role (or queue it). A review that asked for changes is
-   * re-opened for the same reviewer once the author sends the PR back.
+   * and hand it to a free reviewer of that role (or queue it). An existing review re-opens for the
+   * same reviewer when it asked for changes and the author sends the PR back, when the task's PR
+   * changed number, or when it approved an older commit than the PR's head (`headSha`).
    */
-  requestReviews(build: Task) {
+  requestReviews(build: Task, headSha?: string) {
     if (build.kind === "review" || !build.prNumber) return;
+    const head = headSha ?? this.headOf(build.prNumber);
     for (const role of this.reviewerRoles()) {
       const existing = this.reviewsFor(build.id).find((t) => t.reviewRole === role);
       if (existing) {
-        if (existing.status !== "done" || existing.verdict !== "changes") continue; // still open, or already approved
-        Object.assign(existing, { status: "todo", verdict: null, note: null, reviewOf: build.prNumber });
-        this.hub.emit({ type: "task.updated", task: { ...existing } });
+        const moved = existing.reviewOf !== build.prNumber;
+        const done = existing.status === "done";
+        const changes = done && existing.verdict === "changes";
+        const stale = done && existing.verdict === "approve" && !!head && existing.reviewedSha !== head;
+        if (!moved && !changes && !stale) continue; // still open, or approved on the current commit
+        const why = moved ? `moved to PR #${build.prNumber}` : stale ? `new commits on PR #${build.prNumber}` : `PR #${build.prNumber} is back for review`;
+        Object.assign(existing, { ...this.reviewText(build, role), status: "todo", verdict: null, reviewedSha: null, note: null, reviewOf: build.prNumber });
+        this.hub.activity("task.created", null, `${existing.id} re-opened: ${why}`);
         const owner = existing.ownerId && this.hub.cfg(existing.ownerId) ? existing.ownerId : null;
-        if (owner && !this.busyReviewer(owner)) this.assign(existing.id, owner, "hq");
-        else this.placeReview(existing);
+        if (owner && !this.busyReviewer(owner, existing.id)) this.assign(existing.id, owner, "hq");
+        else {
+          existing.ownerId = null;
+          this.hub.emit({ type: "task.updated", task: { ...existing } });
+          this.placeReview(existing);
+        }
         continue;
       }
       const review = this.createTask(
         {
           boardId: build.boardId,
-          title: `Review #${build.prNumber}: ${build.title}`.slice(0, 120),
-          description: `${role} review of PR #${build.prNumber} for ${build.id} (${build.title}).${build.description ? `\n\nThe task: ${build.description}` : ""}`,
+          ...this.reviewText(build, role),
           doneWhen: build.doneWhen,
           kind: "review",
           reviewOf: build.prNumber,
@@ -213,8 +237,8 @@ export class Planner {
     }
   }
 
-  private busyReviewer(agentId: string): boolean {
-    return this.snap.tasks.some((t) => t.ownerId === agentId && t.kind === "review" && t.status !== "done");
+  private busyReviewer(agentId: string, except?: string): boolean {
+    return this.snap.tasks.some((t) => t.ownerId === agentId && t.kind === "review" && t.status !== "done" && t.id !== except);
   }
 
   /** Give a review task to a free reviewer of its role, or leave it queued until one is free. */
@@ -239,6 +263,9 @@ export class Planner {
       return task;
     }
     task.verdict = verdict ?? null;
+    // The commit this verdict is for: the PR's head at the last GitHub poll. If the author pushed
+    // since, the approval won't match the new head and the review re-opens (fails closed).
+    task.reviewedSha = this.headOf(task.reviewOf) ?? null;
     this.hub.setStatus(agentId, { currentTaskId: null });
     this.hub.emit({ type: "task.updated", task: { ...task } });
     this.hub.planChanged();
