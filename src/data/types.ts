@@ -173,6 +173,8 @@ export interface Task {
   verdict?: ReviewVerdict | null;
   /** Review tasks: which reviewer role should take it ("QA", "Security"…). */
   reviewRole?: string | null;
+  /** Review tasks: the PR head commit the verdict was given on. An approval counts only for that commit. */
+  reviewedSha?: string | null;
 }
 
 export type TaskKind = "build" | "review";
@@ -200,11 +202,15 @@ export interface PullRequest {
   openedAt: string;
   url?: string; // link to GitHub
   branch?: string;
+  /** The PR's head commit, so a reviewer's approval only counts for the commit it reviewed. */
+  headSha?: string;
   closed?: boolean; // closed without merging — hidden from the board
   conflict?: boolean; // has merge conflicts with the base branch
   reviewNote?: string | null; // e.g. "CodeRabbit: review rate limited"
   /** The review tool's own state; `review` also waits for reviewer agents. */
   toolReview?: ReviewState;
+  /** The review tool's own note; `reviewNote` may add the reviewer agents' state to it. */
+  toolNote?: string | null;
   /** Reviewer agents' reviews of this PR (plan 012). */
   agentReviews?: AgentReview[];
 }
