@@ -6,7 +6,7 @@ import type { AgentConfig, AgentReview, PullRequest, Task } from "../src/data/ty
 import { branchAgent, fetchPrs, OPEN_LIMIT, RateLimited, taskIdOf, toPullRequest } from "./github";
 import type { Hub } from "./hub";
 import { log } from "./lib/log";
-import type { Planner } from "./planner";
+import { sameCommit, type Planner } from "./planner";
 
 const MERGE_CMD = (n: number | string) => `gh pr merge ${n} --squash --delete-branch`;
 
@@ -34,28 +34,29 @@ const LOW_REMAINING = 800; // below this, poll at most every 2 minutes
  * keeps the tool's own state; `review` is the combined one the office and the lead go by.
  *
  * Fails closed:
- * - A builder's PR (or one tied to a build task) needs a review from every reviewer role on the
- *   team, even before HQ has created those review tasks, so it can't pass in the gap.
- * - A review counts only for the PR and task it was made for: an agent-reported PR number can't
- *   lend a review to an unrelated PR.
- * - An approval counts only for the commit it was given on; new commits make it pending again.
+ * - With reviewer roles on the team, every open PR needs a review from each role, even before HQ
+ *   has created those review tasks. Authorship can't be proven (agents share the user's GitHub
+ *   login and pick their branch names), so no PR is exempt.
+ * - A review counts only for the PR and build task it was made for. A PR whose title names no
+ *   build task (none, a missing one, or a review task) only takes reviews made for no task: the
+ *   ones the lead creates by hand.
+ * - An approval counts only for the commit the reviewer checked out; new commits make it pending.
  */
 export function withAgentReviews(pr: PullRequest, tasks: Task[], team: AgentConfig[]): PullRequest {
   const toolReview = pr.toolReview ?? pr.review;
   const plain: PullRequest = { ...pr, toolReview, agentReviews: undefined, review: toolReview };
   if (pr.merged || pr.closed) return plain;
-  const taskId = pr.taskId || null;
-  const reviews = tasks.filter((t) => t.kind === "review" && t.reviewOf === pr.number && (t.reviewFor ?? null) === taskId);
-  const buildTask = taskId ? tasks.find((t) => t.id === taskId && t.kind !== "review") : undefined;
-  const byBuilder = team.some((a) => a.id === pr.authorId && kindOf(a) === "builder");
-  const roles = byBuilder || buildTask ? [...new Set(team.filter((a) => kindOf(a) === "reviewer").map((a) => a.role))] : [];
+  const buildTask = pr.taskId ? tasks.find((t) => t.id === pr.taskId && t.kind !== "review") : undefined;
+  const linkedTo = buildTask?.id ?? null;
+  const reviews = tasks.filter((t) => t.kind === "review" && t.reviewOf === pr.number && (t.reviewFor ?? null) === linkedTo);
+  const roles = [...new Set(team.filter((a) => kindOf(a) === "reviewer").map((a) => a.role))];
   const missing = roles.filter((role) => !reviews.some((t) => t.reviewRole === role));
   if (!reviews.length && !missing.length) return plain;
 
   const agentReviews: AgentReview[] = [
     ...reviews.map((t): AgentReview => {
       const given = t.status === "done" ? t.verdict : null;
-      const current = given === "approve" ? !!pr.headSha && t.reviewedSha === pr.headSha : true;
+      const current = given === "approve" ? sameCommit(t.reviewedSha, pr.headSha) : true;
       return { taskId: t.id, agentId: t.ownerId, role: t.reviewRole ?? "Reviewer", verdict: given && current ? given : "pending" };
     }),
     ...missing.map((role): AgentReview => ({ taskId: `missing:${role}`, agentId: null, role, verdict: "pending" })),
@@ -241,6 +242,15 @@ export class GitHubSync {
     const ref = `#${pr.number} ${pr.title}`;
 
     if (!old && !pr.merged && !pr.closed) hub.activity("pr.opened", who, `${hub.name(who)} opened PR ${ref}`);
+    // A PR that names no build task gets no automatic reviews, and it can't pass without them.
+    const linked = pr.taskId ? this.planner.task(pr.taskId) : undefined;
+    const missing = pr.agentReviews?.filter((r) => r.taskId.startsWith("missing:")).map((r) => r.role) ?? [];
+    if (!old && !pr.merged && !pr.closed && (!linked || linked.kind === "review") && missing.length && lead)
+      this.planner.notify(
+        lead.id,
+        `PR #${pr.number} (${pr.title}) isn't linked to a build task, so HQ won't review it by itself and it can't pass review. ` +
+          `If it should be merged, create a review task for it for each reviewer role (${missing.join(", ")}): create_task with kind review, reviewOf ${pr.number} and reviewRole, no reviewFor.`,
+      );
     if (pr.closed && !old?.closed) return hub.activity("config", who, `PR #${pr.number} was closed without merging`);
 
     if (pr.merged && !old?.merged) {

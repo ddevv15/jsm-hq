@@ -43,7 +43,7 @@ function world(withQa = true) {
   const inbox = { push: (to: string, m: { text: string }) => sent.push({ to, text: m.text }) } as unknown as Inbox;
   const planner = new Planner(hub, inbox);
   const pr = (n: number, extra: Partial<PullRequest> = {}): PullRequest => ({
-    number: n, title: `PR ${n}`, taskId: "", authorId: "dev", review: "passed", openComments: 0, mergeable: true, merged: false, openedAt: "", headSha: "A", ...extra,
+    number: n, title: `PR ${n}`, taskId: "", authorId: "dev", review: "passed", openComments: 0, mergeable: true, merged: false, openedAt: "", headSha: "a0a0a0a", ...extra,
   });
   const score = (p: PullRequest) => withAgentReviews(p, snap.tasks, team);
   return { snap, planner, pr, score, sent, team };
@@ -70,10 +70,10 @@ function buildTask(w: ReturnType<typeof world>) {
   check("untracked builder PR → not passed", p.review === "reviewing", p.review);
   check("untracked builder PR → note says how to fix", (p.reviewNote ?? "").includes("lead can create"), p.reviewNote ?? "");
 }
-// 3. No regressions: the user's own PR, and a team without reviewers.
+// 3. With reviewers, no PR is exempt (authorship can't be proven); without them, the tool decides.
 {
   const w = world();
-  check("user's PR (no task, not a builder) → tool decides", w.score(w.pr(8, { authorId: "" })).review === "passed");
+  check("PR with no author or task still needs reviewers", w.score(w.pr(8, { authorId: "" })).review === "reviewing");
   const v = world(false);
   const t = buildTask(v);
   check("team without reviewers → tool decides", v.score(v.pr(5, { taskId: t.id })).review === "passed");
@@ -82,19 +82,19 @@ function buildTask(w: ReturnType<typeof world>) {
 {
   const w = world();
   const t = buildTask(w);
-  w.snap.pullRequests.push(w.pr(5, { taskId: t.id, headSha: "A" }));
+  w.snap.pullRequests.push(w.pr(5, { taskId: t.id, headSha: "a0a0a0a" }));
   w.planner.setStatus("dev", "in-review", undefined, 5);
   const review = w.planner.reviewsFor(t.id)[0];
   check("in-review creates a QA review assigned to qa", review?.ownerId === "qa" && review.reviewOf === 5);
-  w.planner.setStatus("qa", "done", "looks good", undefined, "approve");
-  check("verdict records the head commit", review.reviewedSha === "A", String(review.reviewedSha));
-  check("approved on the current commit → passed", w.score(w.pr(5, { taskId: t.id, headSha: "A" })).review === "passed");
-  const pushed = w.score(w.pr(5, { taskId: t.id, headSha: "B" }));
+  w.planner.setStatus("qa", "done", "looks good", undefined, "approve", "a0a0a0a");
+  check("verdict records the reviewed commit", review.reviewedSha === "a0a0a0a", String(review.reviewedSha));
+  check("approved on the current commit → passed", w.score(w.pr(5, { taskId: t.id, headSha: "a0a0a0a" })).review === "passed");
+  const pushed = w.score(w.pr(5, { taskId: t.id, headSha: "b0b0b0b" }));
   check("new commit → approval no longer counts", pushed.review === "reviewing", pushed.review);
-  w.planner.requestReviews(t, "B");
+  w.planner.requestReviews(t, "b0b0b0b");
   check("new commit → review re-opened for the same reviewer", review.status === "todo" && review.verdict === null && review.ownerId === "qa", `${review.status} ${review.verdict} ${review.ownerId}`);
   check("re-opened reviewer was told", w.sent.filter((m) => m.to === "qa").length === 2);
-  w.planner.requestReviews(t, "B");
+  w.planner.requestReviews(t, "b0b0b0b");
   check("re-open is idempotent while the review is open", w.sent.filter((m) => m.to === "qa").length === 2);
 }
 // 5. A review can't be lent to another PR.
@@ -103,14 +103,14 @@ function buildTask(w: ReturnType<typeof world>) {
   const t = buildTask(w);
   w.snap.pullRequests.push(w.pr(5, { taskId: t.id }));
   w.planner.setStatus("dev", "in-review", undefined, 5);
-  w.planner.setStatus("qa", "done", "ok", undefined, "approve");
-  const other = w.score(w.pr(7, { headSha: "A" }));
+  w.planner.setStatus("qa", "done", "ok", undefined, "approve", "a0a0a0a");
+  const other = w.score(w.pr(7, { headSha: "a0a0a0a" }));
   check("approval for T's PR #5 doesn't count on untracked PR #7", other.review === "reviewing", other.review);
   // The task moves to a new PR #9: approval of #5 doesn't count there, and the review follows the PR.
-  const moved = w.score(w.pr(9, { taskId: t.id, headSha: "C" }));
+  const moved = w.score(w.pr(9, { taskId: t.id, headSha: "c0c0c0c" }));
   check("task's new PR #9 → not passed on #5's approval", moved.review === "reviewing", moved.review);
   w.planner.updateTask(t.id, { prNumber: 9 });
-  w.planner.requestReviews(t, "C");
+  w.planner.requestReviews(t, "c0c0c0c");
   const review = w.planner.reviewsFor(t.id)[0];
   check("review moves to #9 and re-opens", review.reviewOf === 9 && review.status === "todo" && review.title.startsWith("Review #9"), `${review.reviewOf} ${review.status} ${review.title}`);
 }
@@ -141,6 +141,55 @@ function buildTask(w: ReturnType<typeof world>) {
   w.planner.setStatus("dev", "in-review", undefined, 5);
   const review = w.planner.reviewsFor(t.id)[0];
   check("sent back → same reviewer re-opened", review.status === "todo" && review.ownerId === "qa");
+}
+
+// 8. The reviewer's own commit decides, not what HQ last polled (no TOCTOU).
+{
+  const w = world();
+  const t = buildTask(w);
+  w.snap.pullRequests.push(w.pr(5, { taskId: t.id, headSha: "aaaaaaa1111" }));
+  w.planner.setStatus("dev", "in-review", undefined, 5);
+  const review = w.planner.reviewsFor(t.id)[0];
+  let threw = "";
+  try {
+    w.planner.setStatus("qa", "done", "ok", undefined, "approve");
+  } catch (e) {
+    threw = e instanceof Error ? e.message : String(e);
+  }
+  check("approve without a commit is refused", threw.includes("commit"), threw);
+  // The author pushed bbbbbbb mid-review and HQ polled it; QA approves the commit it actually checked out.
+  w.snap.pullRequests[0] = w.pr(5, { taskId: t.id, headSha: "bbbbbbb2222" });
+  w.planner.setStatus("qa", "done", "ok", undefined, "approve", "aaaaaaa");
+  check("approval of an older commit doesn't pass the new head", w.score(w.snap.pullRequests[0]).review === "reviewing");
+  check("…and re-opens right away for the same reviewer", review.status === "todo" && review.ownerId === "qa", `${review.status} ${review.ownerId}`);
+  w.planner.setStatus("qa", "done", "ok", undefined, "approve", "BBBBBBB");
+  check("short, any-case SHA of the head → passed", w.score(w.snap.pullRequests[0]).review === "passed");
+}
+// 9. A re-opened reviewer isn't also handed the next queued review.
+{
+  const w = world();
+  const t1 = buildTask(w);
+  w.snap.pullRequests.push(w.pr(5, { taskId: t1.id, headSha: "ccccccc" }));
+  w.planner.setStatus("dev", "in-review", undefined, 5);
+  const t2 = w.planner.createTask({ title: "Second" }, "lead");
+  w.planner.task(t2.id)!.prNumber = 6;
+  w.planner.requestReviews(w.planner.task(t2.id)!);
+  const queued = w.planner.reviewsFor(t2.id)[0];
+  check("second review queued while qa is busy", !queued.ownerId);
+  w.snap.pullRequests[0] = w.pr(5, { taskId: t1.id, headSha: "ddddddd" });
+  w.planner.setStatus("qa", "done", "ok", undefined, "approve", "ccccccc");
+  check("qa keeps the re-opened review, the queued one waits", w.planner.reviewsFor(t1.id)[0].ownerId === "qa" && !queued.ownerId);
+}
+// 10. Unlinked PRs: only reviews made for no task count (the lead's), and a bogus task id doesn't help.
+{
+  const w = world();
+  const hand = w.planner.createTask({ title: "Review #7", kind: "review", reviewOf: 7, reviewRole: "QA" }, "lead");
+  w.planner.assign(hand.id, "qa", "lead");
+  w.planner.setStatus("qa", "done", "ok", undefined, "approve", "eeeeeee");
+  check("lead's review of an unlinked PR counts", w.score(w.pr(7, { headSha: "eeeeeee" })).review === "passed");
+  check("PR naming a missing task takes the unlinked review too", w.score(w.pr(7, { taskId: "ZZ-T99", headSha: "eeeeeee" })).review === "passed");
+  check("PR naming a review task is treated as unlinked", w.score(w.pr(7, { taskId: hand.id, headSha: "eeeeeee" })).review === "passed");
+  check("unlinked review doesn't count on another PR", w.score(w.pr(70, { headSha: "eeeeeee" })).review === "reviewing");
 }
 
 console.log(failed ? `\n${failed} failed` : "\nall passed");

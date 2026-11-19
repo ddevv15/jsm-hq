@@ -27,6 +27,11 @@ const actor = (id: string) => (id === "you" || id === "hq" ? null : id);
 
 const now = () => new Date().toISOString();
 
+/** True when a reviewer's commit (full or short SHA) is the PR's head. Unknown on either side is false. */
+export function sameCommit(reviewed: string | null | undefined, head: string | null | undefined): boolean {
+  return !!reviewed && !!head && reviewed.length >= 7 && head.toLowerCase().startsWith(reviewed.toLowerCase());
+}
+
 export class Planner {
   private seq = 0;
   /** Set by main: the user's action items (Team MCP `ask_user`). */
@@ -140,10 +145,10 @@ export class Planner {
     return task;
   }
 
-  setStatus(agentId: string, status: Extract<TaskStatus, "in-progress" | "blocked" | "in-review" | "done">, note?: string, prNumber?: number, verdict?: ReviewVerdict): Task {
+  setStatus(agentId: string, status: Extract<TaskStatus, "in-progress" | "blocked" | "in-review" | "done">, note?: string, prNumber?: number, verdict?: ReviewVerdict, commit?: string): Task {
     const task = this.currentTask(agentId);
     if (!task) throw new Error("You have no task. Ask the lead for one.");
-    if (task.kind === "review") return this.finishReview(agentId, task, status, note, verdict);
+    if (task.kind === "review") return this.finishReview(agentId, task, status, note, verdict, commit);
     const claimed = prNumber ? this.snap.pullRequests.find((p) => p.number === prNumber) : undefined;
     if (claimed?.taskId && claimed.taskId !== task.id) throw new Error(`PR #${prNumber} belongs to ${claimed.taskId}, not ${task.id}. Give the number of the PR you opened for ${task.id}.`);
     task.status = status;
@@ -207,7 +212,7 @@ export class Planner {
         const moved = existing.reviewOf !== build.prNumber;
         const done = existing.status === "done";
         const changes = done && existing.verdict === "changes";
-        const stale = done && existing.verdict === "approve" && !!head && existing.reviewedSha !== head;
+        const stale = done && existing.verdict === "approve" && !!head && !sameCommit(existing.reviewedSha, head);
         if (!moved && !changes && !stale) continue; // still open, or approved on the current commit
         const why = moved ? `moved to PR #${build.prNumber}` : stale ? `new commits on PR #${build.prNumber}` : `PR #${build.prNumber} is back for review`;
         Object.assign(existing, { ...this.reviewText(build, role), status: "todo", verdict: null, reviewedSha: null, note: null, reviewOf: build.prNumber });
@@ -249,9 +254,12 @@ export class Planner {
   }
 
   /** A reviewer reports on its review task. */
-  private finishReview(agentId: string, task: Task, status: "in-progress" | "blocked" | "in-review" | "done", note?: string, verdict?: ReviewVerdict): Task {
+  private finishReview(agentId: string, task: Task, status: "in-progress" | "blocked" | "in-review" | "done", note?: string, verdict?: ReviewVerdict, commit?: string): Task {
     if (status === "in-review") throw new Error("Reviewers don't open PRs. When you've reviewed it, call set_my_status done with a verdict.");
     if (status === "done" && !verdict) throw new Error("Give your verdict: set_my_status done with verdict approve or changes, and a short summary in note.");
+    const reviewed = commit?.trim().toLowerCase();
+    if (status === "done" && verdict === "approve" && !(reviewed && /^[0-9a-f]{7,40}$/.test(reviewed)))
+      throw new Error(`To approve, give the commit you reviewed: commit = \`git rev-parse HEAD\` on the PR #${task.reviewOf} checkout.`);
     task.status = status;
     task.note = note?.slice(0, 1500) || null;
     const name = this.hub.name(agentId);
@@ -263,9 +271,9 @@ export class Planner {
       return task;
     }
     task.verdict = verdict ?? null;
-    // The commit this verdict is for: the PR's head at the last GitHub poll. If the author pushed
-    // since, the approval won't match the new head and the review re-opens (fails closed).
-    task.reviewedSha = this.headOf(task.reviewOf) ?? null;
+    // The commit the reviewer actually checked out, not whatever HQ last saw: an approval counts
+    // only while the PR's head is that commit, so commits pushed mid-review re-open it.
+    task.reviewedSha = reviewed ?? null;
     this.hub.setStatus(agentId, { currentTaskId: null });
     this.hub.emit({ type: "task.updated", task: { ...task } });
     this.hub.planChanged();
@@ -284,8 +292,12 @@ export class Planner {
             `Their comment is on the PR too (\`gh pr view ${task.reviewOf} --comments\`). Fix it on the same branch, push, then call set_my_status in-review with PR ${task.reviewOf} so they re-check.`,
         );
     }
+    // Approved a commit that's already behind the PR's head: re-open it now rather than at the next poll.
+    const head = this.headOf(task.reviewOf);
+    if (verdict === "approve" && build && head && !sameCommit(task.reviewedSha, head)) this.requestReviews(build, head);
     // Free again: take the next queued review of this reviewer's role.
     const role = this.hub.cfg(agentId)?.role;
+    if (this.busyReviewer(agentId)) return task; // its review was just re-opened
     const next = this.snap.tasks.find((t) => t.kind === "review" && !t.ownerId && t.status === "todo" && t.reviewRole === role);
     if (next) this.assign(next.id, agentId, "hq");
     return task;

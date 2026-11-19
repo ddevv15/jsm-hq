@@ -170,7 +170,8 @@ function buildServer(hub: Hub, planner: Planner, me: string): McpServer {
           buildTask: build ? { id: build.id, title: build.title, description: build.description, doneWhen: build.doneWhen, author: build.owner } : null,
           rules:
             `Review PR #${t.reviewOf} as your role says. Don't change code. Steps: \`gh pr checkout ${t.reviewOf}\`; review it against the build task's description and done-when; ` +
-            `write your findings on the PR with \`gh pr comment ${t.reviewOf} --body-file <file>\`; then call set_my_status done with verdict approve or changes and a short summary in note; then \`git checkout main\`.`,
+            `write your findings on the PR with \`gh pr comment ${t.reviewOf} --body-file <file>\`; then call set_my_status done with verdict approve or changes, a short summary in note, ` +
+            `and commit set to the commit you reviewed (\`git rev-parse HEAD\` on the checked-out PR, before you switch back); then \`git checkout main\`.`,
         });
       }
       return ok({ ...taskView(t.id), waitingOn: blockedBy, rules: "Work only on this task, on its own branch. Edit only the listed files. Title the PR `[" + t.id + "] " + t.title + "`. When the PR is open, call set_my_status with in-review and the PR number." });
@@ -187,10 +188,15 @@ function buildServer(hub: Hub, planner: Planner, me: string): McpServer {
         note: z.string().optional().describe("Why you are blocked, or a short summary (reviewers: your findings)"),
         prNumber: z.number().int().optional(),
         verdict: z.enum(["approve", "changes"]).optional().describe("Review tasks only: your verdict"),
+        commit: z
+          .string()
+          .regex(/^[0-9a-fA-F]{7,40}$/)
+          .optional()
+          .describe("Review tasks only: the commit you reviewed (`git rev-parse HEAD` on the PR checkout). Required to approve."),
       },
     },
-    guard(({ status, note, prNumber, verdict }: { status: "in-progress" | "blocked" | "in-review" | "done"; note?: string; prNumber?: number; verdict?: "approve" | "changes" }) => {
-      const t = planner.setStatus(me, status, note, prNumber, verdict);
+    guard(({ status, note, prNumber, verdict, commit }: { status: "in-progress" | "blocked" | "in-review" | "done"; note?: string; prNumber?: number; verdict?: "approve" | "changes"; commit?: string }) => {
+      const t = planner.setStatus(me, status, note, prNumber, verdict, commit);
       return ok(t.kind === "review" && t.status === "done" ? `${t.id} is done (${t.verdict}). Run \`git checkout main\`.` : `${t.id} is now ${t.status}.`);
     }),
   );
