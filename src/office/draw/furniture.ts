@@ -133,3 +133,26 @@ export function easel(p: Pen, x: number, y: number, w: number, h: number, title:
   p.rect(x + 2, y + 2, w - 4, 7, C.white);
   text(p, title, x + w / 2 - textW(title) / 2, y + 3, C.ink);
 }
+
+/** Park bench, two tiles wide. `x, y` = top-left of its left tile. */
+export function bench(p: Pen, x: number, y: number) {
+  ellipse(p, x + 16, y + 14, 14, 2, C.shadow, 0.25);
+  box(p, x + 2, y + 3, 28, 4, C.desk); // backrest
+  box(p, x + 2, y + 8, 28, 4, C.desk); // seat
+  p.rect(x + 3, y + 8, 26, 1, C.woodL);
+  p.rect(x + 4, y + 12, 2, 3, C.ink);
+  p.rect(x + 26, y + 12, 2, 3, C.ink);
+}
+
+/** Department name on a wall, white on a dark plate. `cx` = centre, `y` = top. */
+export function roomSign(p: Pen, label: string, cx: number, y: number) {
+  const w = textW(label);
+  box(p, Math.round(cx - w / 2) - 3, y, w + 6, 9, C.ink);
+  text(p, label, Math.round(cx - w / 2), y + 2, C.white);
+}
+
+/** Steel plate robots step over the belt on. `x, y` = top-left of the belt tile. */
+export function crossingPlate(p: Pen, x: number, y: number) {
+  box(p, x, y - 2, 16, 20, C.metal, C.metalDD);
+  for (let yy = y + 2; yy < y + 16; yy += 4) p.rect(x + 3, yy, 10, 1, C.metalD);
+}

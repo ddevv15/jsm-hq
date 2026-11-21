@@ -15,6 +15,7 @@ import { PlanNotes } from "./actors/planNotes";
 import * as live from "./draw/live";
 import { drawEmote, drawFace, drawNameTag, drawSelection, drawShadow } from "./draw/overlay";
 import { buildStatic } from "./draw/static";
+import { crossingPlate } from "./draw/furniture";
 import { Camera } from "./engine/camera";
 import { C } from "./engine/palette";
 import { GfxPen } from "./engine/pen";
@@ -245,8 +246,8 @@ export class OfficeScene {
     for (const d of l.desks) live.drawScreen(p, l.ox + (d.x0 + 2) * 16 + 15, l.oy + d.y0 * 16 + 12, states.get(d.agentId) ?? "idle", this.colorOf(d.agentId), t, d.index);
     if (l.lead.agentId) {
       const st = states.get(l.lead.agentId) ?? "idle";
-      live.drawScreen(p, l.ox + 224, l.oy + 72, st, this.colorOf(l.lead.agentId), t, 0);
-      live.drawScreen(p, l.ox + 250, l.oy + 72, st, this.colorOf(l.lead.agentId), t, 1);
+      live.drawScreen(p, l.ox + 224, l.oy + l.building.y0 * 16 + 72, st, this.colorOf(l.lead.agentId), t, 0);
+      live.drawScreen(p, l.ox + 250, l.oy + l.building.y0 * 16 + 72, st, this.colorOf(l.lead.agentId), t, 1);
     }
     if (l.prBoard) live.drawPrBoard(p, l.prBoard, [...this.prs.values()].sort((a, b) => a.number - b.number), (id) => this.colorOf(id));
     live.drawRacks(p, l.racks, envs, (id) => (id ? states.get(id) ?? null : null), (n) => this.pulses.get(n) ?? 0, t);
@@ -267,8 +268,9 @@ export class OfficeScene {
 
     if (!this.reducedMotion) live.drawCables(p, l, (id) => states.get(id) ?? null, (id) => this.colorOf(id), t);
     for (const d of l.desks) live.drawDeskStrip(p, d, l.ox, l.oy, states.get(d.agentId) ?? "idle", this.reducedMotion ? 0 : t);
-    if (l.lead.agentId) live.drawLeadLamp(p, l.ox, l.oy, states.get(l.lead.agentId) ?? "idle", t);
+    if (l.lead.agentId) live.drawLeadLamp(p, l.ox, l.oy + l.building.y0 * 16, states.get(l.lead.agentId) ?? "idle", t);
     live.drawBelt(p, l, this.reducedMotion ? 0 : t);
+    for (const [x, y] of l.crossings) crossingPlate(p, l.ox + x * 16, l.oy + y * 16);
     for (const parcel of this.parcels) {
       const pos = parcelPos(parcel, this.belt);
       const pr = this.prs.get(parcel.num);
