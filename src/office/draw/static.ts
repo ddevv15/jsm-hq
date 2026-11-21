@@ -6,7 +6,7 @@ import { mulberry32 } from "../../lib/random";
 import { text, textW } from "../engine/font";
 import { C } from "../engine/palette";
 import { box, CanvasPen, disc, ellipse, line, makeCanvas } from "../engine/pen";
-import type { OfficeLayout } from "../layout/layout";
+import { roomOf, type OfficeLayout } from "../layout/layout";
 import { beanbag, easel, partitions, plant, plate, rackBody, tree, workDesk } from "./furniture";
 
 export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElement {
@@ -44,8 +44,10 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
 
   g.save();
   g.translate(l.ox, l.oy);
-  const mainPx = (l.mainW + 1) * 16;
-  const L = l.lounge.x0 * 16;
+  // Interim (task 2): old single-room drawing on the new layout; task 3 draws per room.
+  const mainPx = (l.building.w - 1) * 16;
+  const cafe = roomOf(l, "cafe");
+  const L = ((cafe?.x0 ?? 0) + 1) * 16;
 
   // ------------------------------------------------ floors
   g.save();
@@ -92,7 +94,8 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
   ellipse(p, 88, 150, 28, 16, C.rugG);
 
   // server room floor
-  const sr = l.serverRoom;
+  const srv = roomOf(l, "server");
+  const sr = srv ? { glassX: srv.x0, x0: srv.x0 + 1, w: srv.w - 2 } : null;
   if (sr) {
     const sx = sr.x0 * 16;
     const sw = sr.w * 16;

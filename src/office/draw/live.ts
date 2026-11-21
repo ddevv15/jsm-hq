@@ -6,7 +6,7 @@ import { reviewStyle, stateStyle } from "../../theme/tokens";
 import { fit, tag, text, textW } from "../engine/font";
 import { C } from "../engine/palette";
 import { box, disc, drawRows, line, type Pen } from "../engine/pen";
-import type { DeskSpot, OfficeLayout, PxRect, Rack } from "../layout/layout";
+import { roomOf, type DeskSpot, type OfficeLayout, type PxRect, type Rack } from "../layout/layout";
 import { RABBIT, RABBIT_BLINK, RABBIT_PAL, SCANNER, SCANNER_PAL } from "./robots";
 
 const blink = (t: number, hz: number) => Math.floor(t * hz) % 2 === 1;
@@ -197,7 +197,11 @@ export function drawCables(
 }
 
 export function drawWindowAndClock(p: Pen, l: OfficeLayout, t: number) {
-  const W = { x: l.ox + l.lounge.x0 * 16 + 66, y: l.oy + 22, w: 60, h: 28 };
+  const cafe = roomOf(l, "cafe");
+  if (!cafe) return;
+  const cafeX = l.ox + (cafe.x0 + 1) * 16; // café's first floor column, in world px
+  const cafeY = l.oy + cafe.y0 * 16;
+  const W = { x: cafeX + 66, y: cafeY + 22, w: 60, h: 28 };
   const hour = new Date().getHours();
   const night = currentTheme() === "night" || hour < 7 || hour >= 19;
   p.rect(W.x, W.y, W.w, W.h, night ? C.skyN : C.sky);
@@ -212,8 +216,8 @@ export function drawWindowAndClock(p: Pen, l: OfficeLayout, t: number) {
     }
   p.rect(W.x + W.w / 2 - 1, W.y, 2, W.h, C.white);
   p.rect(W.x, W.y + W.h / 2 - 1, W.w, 2, C.white);
-  const cx = l.ox + l.lounge.x0 * 16 - 8;
-  const cy = l.oy + 36;
+  const cx = cafeX - 8;
+  const cy = cafeY + 36;
   const d = new Date();
   const m = d.getMinutes();
   const am = (m / 60) * Math.PI * 2 - Math.PI / 2;
