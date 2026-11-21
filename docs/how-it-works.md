@@ -25,6 +25,8 @@ What HQ does behind the office: where agents work, how they talk, what reaches G
 
 New teams get names from The Office: Michael leads, then Dwight, Jim, Pam and so on. Rename them any time.
 
+In the office, the lead has its own office and workers sit in department rooms by role: Engineering (Developer, Frontend, Backend), Quality (QA, Code Reviewer, Security), Design & Docs (Designer, Docs) and Ops (DevOps). Any other role sits in Engineering. The café and the server room are separate buildings on the lawn.
+
 ## Workspaces and sessions
 
 - **Its own copy of the repo.** Each agent gets a full clone at `~/.jsmhq/<project>/<agent>/`. Your own working folder is never touched.

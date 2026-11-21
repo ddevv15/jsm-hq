@@ -129,6 +129,7 @@ const bigTeam: Preset = {
       agent("priya", "Priya", "QA", "#a98bff", { skills: ["test", "review"] }),
       agent("leo", "Leo", "Designer", "#ff8a3d", { skills: ["frontend-design", "review"] }),
       agent("sam", "Sam", "Docs", "#3ee0d0", { model: "Haiku", skills: ["document"] }),
+      agent("oscar", "Oscar", "DevOps", "#ff5c5c"),
     ],
     workflow: {
       review: { enabled: true, tool: "greptile", command: "" },
