@@ -232,9 +232,12 @@ export function generateLayout(config: HqConfig, envs: Environment[]): OfficeLay
     let rx = 0;
     row.forEach((q, qi) => {
       const w = qi === row.length - 1 ? R - rx : q.w; // the last room stretches to the lobby
-      rooms.push({ kind: "department", id: q.id, x0: rx, y0: Y(top), w, h, label: q.label, doors: [[rx + 1, Y(top)]] });
+      // A door at the left, plus one above each desk column so robots walk straight out to the belt.
+      const doors: Tile[] = [[rx + 1, Y(top)]];
+      for (let c = 0; c < q.cols; c++) doors.push([rx + 3 + c * PITCH, Y(top)]);
+      rooms.push({ kind: "department", id: q.id, x0: rx, y0: Y(top), w, h, label: q.label, doors });
       open(rx + 1, Y(top + 1), rx + w - 2, Y(top + h - 2));
-      open(rx + 1, Y(top), rx + 1, Y(top)); // door
+      for (const [x, y] of doors) open(x, y, x, y);
       q.members.forEach((a, k) => {
         const x0 = rx + 2 + (k % q.cols) * PITCH;
         const y0 = Y(top + 2 + Math.floor(k / q.cols) * PITCH);

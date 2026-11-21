@@ -2,6 +2,7 @@
 // Run from the repo root: npx tsx scripts/office-layout-test.ts
 import { presets } from "../src/data/mock/presets";
 import type { Environment, HqConfig } from "../src/data/types";
+import { dropDeadline, walkSeconds } from "../src/office/actors/walk";
 import type { Tile } from "../src/office/engine/path";
 import { departmentOf, groupByDepartment } from "../src/office/layout/departments";
 import { generateLayout, layoutKey, type OfficeLayout, type Room } from "../src/office/layout/layout";
@@ -132,6 +133,20 @@ for (const [name, t] of [
   const c = withTeam(deployPreset, t);
   invariants(name, generateLayout(c, envsFor(c)), c);
 }
+// ------------------------------------------------------------ walks to the belt (final review #1)
+const walkTiles = (l: OfficeLayout, a: Tile, b: Tile) => l.grid.find(a[0], a[1], b[0], b[1]).length;
+for (const p of presets) {
+  const l = generateLayout(p.config, envsFor(p.config));
+  const firstRow = Math.min(...l.rooms.filter((r) => r.kind === "department").map((r) => r.y0));
+  const slow = l.desks
+    .filter((d) => d.y0 < firstRow + 12)
+    .map((d) => [d.agentId, walkSeconds(walkTiles(l, d.seat, d.drop))] as const)
+    .filter(([, s]) => s > 8);
+  check(`${p.id}: first-row desks reach the belt within 8 s`, !slow.length, slow.map(([a, s]) => `${a} ${s.toFixed(1)}s`).join(", "));
+}
+check("drop deadline: short walk keeps 8 s", dropDeadline(10, 3) === 18);
+check("drop deadline: long walk gets walk time + 2 s", Math.abs(dropDeadline(10, 60) - (10 + (60 * 16) / 52 + 2)) < 1e-9);
+
 const cfg = presets[0].config;
 const someWorker = cfg.team.find((a) => !a.isLead)!.id;
 check("role change changes layoutKey", layoutKey(cfg, envsFor(cfg)) !== layoutKey(withRole(cfg, someWorker, "QA"), envsFor(cfg)));

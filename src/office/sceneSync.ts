@@ -80,7 +80,7 @@ export function syncScene(s: OfficeScene, snap: OfficeSnapshot, epoch: number) {
         bot.carry = pr.number;
         sendOnErrand(bot, l, {
           kind: "drop",
-          deadline: s.t + 8,
+          deadline: s.t, // start time; sendOnErrand adds the walk
           onArrive: () => {
             bot.carry = null;
             if (parcel.mode === "carry") {

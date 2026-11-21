@@ -5,17 +5,19 @@ import type { AgentConfig, AgentState } from "../../data/types";
 import type { Tile } from "../engine/path";
 import { robotSprites, type Facing } from "../draw/robots";
 import { tileCentre, type OfficeLayout } from "../layout/layout";
+import { dropDeadline, WALK_SPEED } from "./walk";
 
 export type Face = "up" | "down" | "left" | "right";
 export type EmoteType = "talk" | "coffee" | "mail" | "ok" | "heart";
 
 type Errand =
   | { kind: "plan" }
+  /** `deadline` is passed in as the start time; sendOnErrand turns it into start + walk time. */
   | { kind: "drop"; onArrive: () => void; deadline: number }
   | { kind: "coffee" }
   | { kind: "wander" };
 
-const SPEED = 52; // px per second
+const SPEED = WALK_SPEED; // px per second
 
 export class Bot {
   x: number;
@@ -152,6 +154,7 @@ export function sendOnErrand(bot: Bot, l: OfficeLayout, errand: Errand, target: 
   bot.errand = errand;
   bot.pause = 0;
   bot.goTo(l, target);
+  if (errand.kind === "drop") errand.deadline = dropDeadline(errand.deadline, bot.path.length);
   if (!bot.path.length && errand.kind === "drop") {
     bot.errand = null;
     errand.onArrive();
