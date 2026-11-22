@@ -319,13 +319,13 @@ export function generateLayout(config: HqConfig, envs: Environment[]): OfficeLay
   const benches: Tile[] = [C0(2, CAFE_H + 1), C0(7, CAFE_H + 1)];
   for (const [x, y] of benches) block(x, y, x + 1, y);
 
-  // ---------------------------------------------------------- cables (desk → own rack, under the lawn)
+  // ---------------------------------------------------------- cables (desk → own rack, under the belt)
   const cables: OfficeLayout["cables"] = [];
   desks.forEach((d, i) => {
     const rack = racks.find((r) => r.agentId === d.agentId);
     if (!rack) return;
     const sx = px(d.x0 + 3) + 4 + (i % 3) * 3;
-    const laneY = py(Y(15)) + 4 + (i % 4) * 3;
+    const laneY = beltY - 6 + (i % 4) * 3; // hidden under the belt, which climbs to the racks
     const rx = rack.x + 10 + (i % 3) * 4;
     cables.push({ agentId: d.agentId, pts: [[sx, py(d.y0 + 2) + 12], [sx, laneY], [rx, laneY], [rx, rack.y + rack.h]] });
   });

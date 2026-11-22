@@ -94,6 +94,19 @@ function invariants(name: string, l: OfficeLayout, config: HqConfig) {
     check(`${name}: racks above the belt`, l.racks.every((r) => r.y + r.h <= l.belt.y));
   }
   check(`${name}: hit areas inside the world`, l.hits.every((h) => inside(h.rect, l)));
+  const cafe = l.rooms.find((r) => r.kind === "cafe");
+  if (cafe) {
+    const cx0 = l.ox + cafe.x0 * 16;
+    const cy0 = l.oy + cafe.y0 * 16;
+    const hitsCafe = l.cables.some((cb) =>
+      cb.pts.slice(1).some(([x1, y1], i) => {
+        const [x0, y0] = cb.pts[i];
+        return Math.max(x0, x1) >= cx0 && Math.min(x0, x1) <= cx0 + cafe.w * 16 && Math.max(y0, y1) >= cy0 && Math.min(y0, y1) <= cy0 + cafe.h * 16;
+      }),
+    );
+    check(`${name}: cables stay clear of the café`, !hitsCafe);
+  }
+  check(`${name}: cable lanes run under the belt`, l.cables.every((cb) => Math.abs(cb.pts[1][1] - l.belt.y) <= 8));
   const beltRow = Math.floor((l.belt.y - l.oy) / 16);
   check(`${name}: crossings on the belt row and walkable`, l.crossings.every(([x, y]) => y === beltRow && l.grid.ok(x, y)));
 }
