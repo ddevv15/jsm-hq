@@ -124,19 +124,6 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
   g.save();
   g.translate(l.ox, l.oy);
 
-  // ------------------------------------------------ side path: side door → café door
-  if (cafe) {
-    const [sx, sy] = l.sideDoor;
-    const [cx, cy] = cafe.doors[0];
-    const turn = cx - 1;
-    const pathTile = (x: number, y: number, w: number, h: number) => {
-      p.rect(x * 16, y * 16, w * 16, h * 16, C.path);
-      for (let i = 0; i < (w * h) / 2; i++) p.rect(x * 16 + Math.floor(R() * (w * 16 - 2)), y * 16 + Math.floor(R() * (h * 16 - 1)), 2, 1, C.pathD);
-    };
-    pathTile(sx + 1, sy, turn - sx, 1);
-    pathTile(turn, Math.min(sy, cy), 1, Math.abs(cy - sy) + 1);
-  }
-
   // ------------------------------------------------ floors
   planks(bx + 16, by + 64, bw - 32, bh - 80);
   const logo = config.project.name.toUpperCase().slice(0, 12);

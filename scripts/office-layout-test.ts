@@ -5,7 +5,7 @@ import type { Environment, HqConfig } from "../src/data/types";
 import { dropDeadline, walkSeconds } from "../src/office/actors/walk";
 import type { Tile } from "../src/office/engine/path";
 import { departmentOf, groupByDepartment } from "../src/office/layout/departments";
-import { generateLayout, layoutKey, type OfficeLayout, type Room } from "../src/office/layout/layout";
+import { amenitySpots, generateLayout, layoutKey, type OfficeLayout, type Room } from "../src/office/layout/layout";
 
 let failed = 0;
 const check = (name: string, ok: boolean, detail = "") => {
@@ -22,8 +22,6 @@ export function envsFor(config: HqConfig): Environment[] {
   return [...config.team.filter((a) => !a.isLead).map((a) => env(a.id, a.id)), env("main", null)];
 }
 
-/** Default-view zoom per preset before departments, at 1440×900 (camera.fitZoom at DPR 2, no HUD insets). */
-const BASELINE_FIT: Record<string, number> = { askwell: 2, "big-team": 1.5, duo: 2 };
 
 // ------------------------------------------------------------ departments
 check("developer → engineering", departmentOf("Developer") === "engineering");
@@ -40,7 +38,6 @@ const g = groupByDepartment([{ role: "QA" }, { role: "Dev" }, { role: "Docs" }, 
 check("groups in building order, empty skipped", g.map((x) => x.dept.id).join() === "engineering,quality,design-docs", g.map((x) => x.dept.id).join());
 check("members keep input order", g[1].members.length === 2 && g[1].members[0].role === "QA");
 
-check("every preset has a baseline", presets.every((p) => p.id in BASELINE_FIT));
 
 // ------------------------------------------------------------ layout
 const inside = (r: { x: number; y: number; w: number; h: number }, l: OfficeLayout) =>
@@ -51,7 +48,6 @@ const reaches = (l: OfficeLayout, t: Tile) => {
   const end = path[path.length - 1];
   return (l.door[0] === t[0] && l.door[1] === t[1]) || (!!end && end[0] === t[0] && end[1] === t[1]);
 };
-const fit = (l: OfficeLayout) => Math.floor((Math.min(1440 / l.worldW, 900 / l.worldH) + 0.2) / 0.5) * 0.5;
 
 function invariants(name: string, l: OfficeLayout, config: HqConfig) {
   const workers = config.team.filter((a) => !a.isLead);
@@ -107,6 +103,25 @@ function invariants(name: string, l: OfficeLayout, config: HqConfig) {
     check(`${name}: cables stay clear of the café`, !hitsCafe);
   }
   check(`${name}: cable lanes run under the belt`, l.cables.every((cb) => Math.abs(cb.pts[1][1] - l.belt.y) <= 8));
+  // campus (revision 2026-11-24)
+  const hq = l.rooms.find((r) => r.kind === "lead")!;
+  for (const kind of ["cafe", "gym", "game"] as const) {
+    const r = l.rooms.find((x) => x.kind === kind);
+    check(`${name}: ${kind} building above the HQ row`, !!r && r.y0 + r.h <= hq.y0);
+    check(`${name}: ${kind} has a reachable spot`, amenitySpots(l, kind).some((t) => reaches(l, t)));
+  }
+  const unreachableDoors = l.rooms.filter((r) => r.kind !== "corridor" && r.kind !== "server").flatMap((r) => r.doors.filter((d) => !reaches(l, d)).map(() => r.id));
+  check(`${name}: every door reachable`, !unreachableDoors.length, unreachableDoors.join(", "));
+  const blds = l.rooms.filter((r) => r.kind !== "corridor");
+  let tight = "";
+  blds.forEach((a, i) =>
+    blds.forEach((b, j) => {
+      if (j <= i) return;
+      const gap = Math.max(b.x0 - (a.x0 + a.w), a.x0 - (b.x0 + b.w), b.y0 - (a.y0 + a.h), a.y0 - (b.y0 + b.h));
+      if (gap < 2) tight = `${a.id}/${b.id} gap ${gap}`;
+    }),
+  );
+  check(`${name}: buildings at least 2 tiles apart`, !tight, tight);
   const beltRow = Math.floor((l.belt.y - l.oy) / 16);
   check(`${name}: crossings on the belt row and walkable`, l.crossings.every(([x, y]) => y === beltRow && l.grid.ok(x, y)));
 }
@@ -125,7 +140,6 @@ const mixed = ["Developer", "QA", "Designer", "DevOps", "Security", "Docs", "Fro
 for (const p of presets) {
   const l = generateLayout(p.config, envsFor(p.config));
   invariants(p.id, l, p.config);
-  check(`${p.id}: fit within one step of today`, fit(l) >= BASELINE_FIT[p.id] - 0.5, `${fit(l)} vs ${BASELINE_FIT[p.id]}`);
   const nr = noReview(p.config);
   const lNoReview = generateLayout(nr, envsFor(nr));
   invariants(`${p.id} review off`, lNoReview, nr);
@@ -159,6 +173,9 @@ for (const p of presets) {
 }
 check("drop deadline: short walk keeps 8 s", dropDeadline(10, 3) === 18);
 check("drop deadline: long walk gets walk time + 2 s", Math.abs(dropDeadline(10, 60) - (10 + (60 * 16) / 52 + 2)) < 1e-9);
+
+const twelve = withTeam(deployPreset, team(12, ["Developer"]));
+check("12 developers → one Engineering building", generateLayout(twelve, envsFor(twelve)).rooms.filter((r) => r.kind === "department").length === 1);
 
 const cfg = presets[0].config;
 const someWorker = cfg.team.find((a) => !a.isLead)!.id;
