@@ -5,7 +5,7 @@ import type { OfficeSnapshot, ReviewState } from "../data/types";
 import { Bot, seatOf, sendOnErrand } from "./actors/bots";
 import { BeltPath, type Parcel } from "./actors/parcels";
 import { C } from "./engine/palette";
-import { generateLayout, layoutKey, tileCentre } from "./layout/layout";
+import { generateLayout, layoutKey, refitKey, tileCentre } from "./layout/layout";
 import type { OfficeScene } from "./OfficeScene";
 
 export function syncScene(s: OfficeScene, snap: OfficeSnapshot, epoch: number) {
@@ -27,13 +27,16 @@ export function syncScene(s: OfficeScene, snap: OfficeSnapshot, epoch: number) {
   const firstLayout = !s.layout;
   if (!s.layout || s.layout.key !== key) {
     const prev = s.layout;
+    const prevRefit = s.refitKey;
+    s.refitKey = refitKey(snap.config);
     const l = generateLayout(snap.config, snap.environments);
     s.layout = l;
     s.belt = new BeltPath(l);
     s.setStatic(l, snap.config);
-    // Fit the whole office on the first layout, and again whenever its size changes.
+    // Fit the whole office on the first layout, and again when the team or workflow changes its size
+    // (not when a deploy adds an environment mid-session: that would throw away the user's view).
     if (firstLayout) s.camera.home(false);
-    else if (prev && (prev.worldW !== l.worldW || prev.worldH !== l.worldH)) s.camera.home();
+    else if (prev && prevRefit !== refitKey(snap.config) && (prev.worldW !== l.worldW || prev.worldH !== l.worldH)) s.camera.home();
     for (const b of s.bots.values()) {
       if (b.errand?.kind === "drop") b.errand.onArrive();
       b.errand = null;

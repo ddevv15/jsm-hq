@@ -4,9 +4,10 @@ import { presets } from "../src/data/mock/presets";
 import type { Environment, HqConfig } from "../src/data/types";
 import { dropDeadline, walkSeconds } from "../src/office/actors/walk";
 import type { Tile } from "../src/office/engine/path";
-import { fitZoom } from "../src/office/engine/zoom";
+import { fitZoom, minZoom } from "../src/office/engine/zoom";
 import { departmentOf, groupByDepartment } from "../src/office/layout/departments";
-import { amenitySpots, generateLayout, layoutKey, type OfficeLayout, type Room } from "../src/office/layout/layout";
+import { readFileSync } from "node:fs";
+import { amenitySpots, generateLayout, layoutKey, refitKey, type OfficeLayout, type Room } from "../src/office/layout/layout";
 
 let failed = 0;
 const check = (name: string, ok: boolean, detail = "") => {
@@ -196,6 +197,31 @@ for (const p of presets) {
   check("3-agent demo opens at 1x or more on Retina", fitZoom(FREE, { w: l.worldW, h: l.worldH }, MARGIN_PX, 2) >= 1);
 }
 check("small world caps at 6x", fitZoom(FREE, { w: 100, h: 80 }, 0, 2) === 6);
+
+// ------------------------------------------------------------ final review fixes (campus)
+const manyEnvs = (n: number): Environment[] =>
+  Array.from({ length: n }, (_, i) => ({ name: `env${i}`, agentId: null, url: "", status: "live" as const, lastDeployAt: "" }));
+for (const [name, c, n] of [
+  ["review off, 8 devs, 9 envs", noReview(withTeam(deployPreset, team(8, ["Developer"]))), 9],
+  ["review on, 1 dev, 9 envs", withTeam(deployPreset, team(1, ["Developer"])), 9],
+  ["review off, 1 dev, 17 envs", noReview(withTeam(deployPreset, team(1, ["Developer"]))), 17],
+] as [string, HqConfig, number][]) {
+  invariants(name, generateLayout(c, manyEnvs(n)), c);
+}
+{
+  const c = presets[0].config;
+  const envs = envsFor(c);
+  check("new environment doesn't move the camera", refitKey(c) === refitKey(c) && layoutKey(c, envs) !== layoutKey(c, [...envs, ...manyEnvs(1)]));
+  check("team change re-fits the camera", refitKey(c) !== refitKey(withTeam(c, team(5, mixed))));
+  check("review toggle re-fits the camera", refitKey(c) !== refitKey(noReview(c)));
+}
+check("150% scaling keeps a 1x floor", minZoom(1.5) === 1);
+check("Retina floor is 0.5x", minZoom(2) === 0.5);
+{
+  const src = readFileSync(new URL("../src/office/draw/static.ts", import.meta.url), "utf8");
+  const block = src.slice(src.indexOf("gym + game room"), src.indexOf("for (const [x, y] of l.benches)"));
+  check("gym and game room art uses palette colours only", !/"#[0-9a-fA-F]{3,8}"/.test(block), block.match(/"#[0-9a-fA-F]{3,8}"/g)?.join(" ") ?? "");
+}
 
 const cfg = presets[0].config;
 const someWorker = cfg.team.find((a) => !a.isLead)!.id;

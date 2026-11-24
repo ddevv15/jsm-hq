@@ -361,13 +361,13 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
     const at = (x: number, y: number): [number, number] => [(game.x0 + x) * 16, (game.y0 + y) * 16];
     poolTable(p, ...at(2, 5));
     pingPong(p, ...at(6, 8));
-    arcadeCabinet(p, ...at(7, 4), "#5b3a8e");
+    arcadeCabinet(p, ...at(7, 4), C.lav);
     arcadeCabinet(p, ...at(8, 4), C.blue);
     arcadeCabinet(p, ...at(9, 4), C.red);
     const [bx1, by1] = at(1, 8);
-    beanbag(p, bx1 + 8, by1 + 8, "#e05a47", "#b8443a");
-    beanbag(p, bx1 + 24, by1 + 10, "#3fa7a0", "#2f817c");
-    beanbag(p, bx1 + 40, by1 + 8, "#f2b33d", "#c88d22");
+    beanbag(p, bx1 + 8, by1 + 8, C.pot, C.potD);
+    beanbag(p, bx1 + 24, by1 + 10, C.couch, C.couchD);
+    beanbag(p, bx1 + 40, by1 + 8, C.cork, C.corkD);
   }
   for (const [x, y] of l.benches) bench(p, x * 16, y * 16);
 

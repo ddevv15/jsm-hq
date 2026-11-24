@@ -116,6 +116,12 @@ export function layoutKey(config: HqConfig, envs: Environment[]): string {
   ]);
 }
 
+/** The parts of the config that should re-fit the camera when they change (not environments). */
+export function refitKey(config: HqConfig): string {
+  const wf = config.workflow;
+  return JSON.stringify([config.team.map((a) => [a.id, a.isLead, a.role]), wf.review.enabled, wf.deploy.enabled]);
+}
+
 export function deskColumns(n: number): number {
   if (n <= 4) return Math.max(1, n);
   return Math.min(5, Math.ceil(n / 2));
@@ -164,7 +170,8 @@ export function generateLayout(config: HqConfig, envs: Environment[]): OfficeLay
   const rackCount = hasServer ? envs.length : 0;
   const rackRows = Math.ceil(rackCount / RACKS_PER_ROW);
   const srH = 2 + rackRows * 7;
-  const by0 = hasServer ? Math.max(0, srH - HQ_H) : 0; // a tall server building pushes the campus down
+  const tallServer = srH > HQ_H; // reaches up past HQ, beside the amenity row
+  const by0 = hasServer ? Math.max(0, srH - (T + HQ_H)) : 0; // taller than both rows: push the campus down
   const Y = (t: number) => by0 + t;
 
   // ---------------------------------------------------------- x positions
@@ -172,10 +179,11 @@ export function generateLayout(config: HqConfig, envs: Environment[]): OfficeLay
   const alleyX = LEAD_MIN; // lawn column right of HQ, from the amenities to the street
   const reviewX = Math.max(LEAD_MIN + GAP, deptRight); // the gate in front of it is past every drop point
   const gx = reviewX + 3;
-  const srX = review ? reviewX + REVIEW_W + GAP : Math.max(LEAD_MIN + GAP, deptRight);
+  const amenityRight = amenityX.game + AMENITY_W + GAP;
+  const srX = Math.max(review ? reviewX + REVIEW_W + GAP : Math.max(LEAD_MIN + GAP, deptRight), tallServer ? amenityRight : 0);
   const srW = hasServer ? 4 + Math.min(rackCount, RACKS_PER_ROW) * 2 : 0;
   const sy0 = Y(BELT_ROW) - srH; // bottom wall right above the belt
-  const W = Math.max(srX + srW, deptRight, amenityX.game + AMENITY_W + GAP) + GAP;
+  const W = Math.max(srX + srW, deptRight, amenityRight) + GAP;
   const H = Y(Math.max(deptBottom, DEPT_TOP)) + GAP;
 
   const ox = MARGIN * TS;

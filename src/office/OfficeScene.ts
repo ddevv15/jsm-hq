@@ -39,6 +39,8 @@ export class OfficeScene {
   camera!: Camera;
 
   layout: OfficeLayout | null = null;
+  /** refitKey of the config the camera last fitted to (see sceneSync). */
+  refitKey = "";
   belt!: BeltPath;
   bots = new Map<string, Bot>();
   parcels: Parcel[] = [];
