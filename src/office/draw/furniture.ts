@@ -156,3 +156,65 @@ export function crossingPlate(p: Pen, x: number, y: number) {
   box(p, x, y - 2, 16, 20, C.metal, C.metalDD);
   for (let yy = y + 2; yy < y + 16; yy += 4) p.rect(x + 3, yy, 10, 1, C.metalD);
 }
+
+/** Treadmill seen from above, 2×2 tiles. `x, y` = top-left. */
+export function treadmill(p: Pen, x: number, y: number) {
+  ellipse(p, x + 16, y + 30, 14, 2, C.shadow, 0.25);
+  box(p, x + 3, y + 6, 26, 24, C.metalDD);
+  p.rect(x + 7, y + 10, 18, 18, C.ink);
+  for (let yy = y + 12; yy < y + 27; yy += 3) p.rect(x + 8, yy, 16, 1, C.metalDD);
+  box(p, x + 7, y, 18, 8, C.metal); // console
+  p.rect(x + 10, y + 2, 12, 3, C.screen);
+}
+
+/** Dumbbell rack, 2×3 tiles. */
+export function weightRack(p: Pen, x: number, y: number) {
+  box(p, x + 2, y + 2, 28, 44, C.metalD);
+  for (let k = 0; k < 6; k++) {
+    const cx = x + 9 + (k % 2) * 14;
+    const cy = y + 10 + Math.floor(k / 2) * 13;
+    p.rect(cx - 5, cy - 1, 10, 2, C.metalL);
+    disc(p, cx - 5, cy, 3, C.ink);
+    disc(p, cx + 5, cy, 3, C.ink);
+  }
+}
+
+/** Bench press: a bench with a bar across it, 2×1 tiles. */
+export function benchPress(p: Pen, x: number, y: number) {
+  box(p, x + 4, y + 4, 24, 8, C.couchD);
+  p.rect(x - 2, y + 1, 36, 2, C.metalDD);
+  disc(p, x - 2, y + 2, 3, C.ink);
+  disc(p, x + 34, y + 2, 3, C.ink);
+}
+
+/** Pool table, 4×2 tiles. */
+export function poolTable(p: Pen, x: number, y: number) {
+  ellipse(p, x + 32, y + 33, 30, 3, C.shadow, 0.25);
+  box(p, x, y, 64, 32, C.deskD);
+  p.rect(x + 4, y + 4, 56, 24, C.rugG);
+  p.rect(x + 4, y + 4, 56, 1, C.rugGD);
+  for (const [hx, hy] of [[5, 5], [32, 4], [59, 5], [5, 27], [32, 28], [59, 27]]) disc(p, x + hx, y + hy, 2, C.ink);
+  disc(p, x + 20, y + 16, 2, C.white);
+  for (const [bx, by, col] of [[40, 12, C.red], [44, 16, C.yellow], [40, 20, C.blue], [36, 16, C.ink]] as [number, number, string][]) disc(p, x + bx, y + by, 2, col);
+  p.rect(x + 8, y + 22, 18, 1, C.woodL); // cue
+}
+
+/** Ping-pong table, 3×2 tiles. */
+export function pingPong(p: Pen, x: number, y: number) {
+  ellipse(p, x + 24, y + 30, 22, 3, C.shadow, 0.25);
+  box(p, x, y + 2, 48, 26, C.navy);
+  p.rect(x + 23, y + 3, 2, 24, C.white); // net
+  p.rect(x + 2, y + 14, 44, 1, C.white);
+  disc(p, x + 6, y + 6, 2, C.red); // paddles
+  disc(p, x + 42, y + 22, 2, C.red);
+}
+
+/** Arcade cabinet, 1×1 tile, screen facing down. */
+export function arcadeCabinet(p: Pen, x: number, y: number, col: string) {
+  box(p, x + 1, y - 10, 14, 26, col);
+  p.rect(x + 3, y - 8, 10, 4, C.yellow);
+  box(p, x + 3, y - 3, 10, 8, C.ink);
+  p.rect(x + 4, y - 2, 8, 6, C.screen);
+  p.rect(x + 5, y + 8, 2, 2, C.red);
+  p.rect(x + 9, y + 8, 2, 2, C.blue);
+}

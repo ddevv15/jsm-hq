@@ -1,5 +1,5 @@
-// The static layer: lawn, paths, buildings, rooms and furniture, drawn once per layout.
-// The main building is drawn room by room; the café and server room are buildings on the lawn.
+// The static layer: lawn, paths, buildings and furniture, drawn once per layout.
+// The office is a campus: every room is its own building on the lawn.
 
 import { officeSign } from "../../data/names";
 import type { HqConfig } from "../../data/types";
@@ -9,7 +9,7 @@ import { C } from "../engine/palette";
 import { box, CanvasPen, disc, ellipse, makeCanvas } from "../engine/pen";
 import type { Tile } from "../engine/path";
 import { roomOf, type OfficeLayout, type Room } from "../layout/layout";
-import { beanbag, bench, easel, partitions, plant, plate, rackBody, roomSign, tree, workDesk } from "./furniture";
+import { arcadeCabinet, beanbag, bench, benchPress, easel, partitions, pingPong, plant, plate, poolTable, rackBody, roomSign, tree, treadmill, weightRack, workDesk } from "./furniture";
 
 export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElement {
   const canvas = makeCanvas(l.worldW, l.worldH);
@@ -20,8 +20,6 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
   const B = l.building;
   const bx = B.x0 * 16; // building, site px
   const by = B.y0 * 16;
-  const bw = B.w * 16;
-  const bh = B.h * 16;
   const cafe = roomOf(l, "cafe");
   const server = roomOf(l, "server");
 
@@ -81,15 +79,14 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
       p.rect(x + 16, y, 3, 16, C.deskDD);
     }
   };
-  /** Side and bottom walls of a room, plus the top wall unless it's on the building's back wall. */
-  const roomWalls = (r: Room) => {
+  /** Side and bottom walls of a building, plus a plain top wall when it has no painted back wall. */
+  const roomWalls = (r: Room, hasBack: boolean) => {
     const x = r.x0 * 16;
     const y = r.y0 * 16;
     const w = r.w * 16;
     const h = r.h * 16;
-    const onBack = r.y0 === B.y0;
-    const top = onBack ? y + 16 : y;
-    if (!onBack) wallRun(x, y, w, 16);
+    const top = hasBack ? y + 16 : y;
+    if (!hasBack) wallRun(x, y, w, 16);
     wallRun(x, top, 16, y + h - top);
     wallRun(x + w - 16, top, 16, y + h - top);
     wallRun(x, y + h - 16, w, 16);
@@ -108,7 +105,7 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
   const doorY = l.oy + l.door[1] * 16;
   p.rect(0, doorY, l.ox, 16, C.path);
   for (let i = 0; i < 20; i++) p.rect(Math.floor(R() * (l.ox - 2)), doorY + Math.floor(R() * 15), 2, 1, C.pathD);
-  for (const r of [{ x: bx, y: by, w: bw, h: bh }, ...[cafe, server].filter((s): s is Room => !!s).map((s) => ({ x: s.x0 * 16, y: s.y0 * 16, w: s.w * 16, h: s.h * 16 }))]) {
+  for (const r of l.rooms.filter((s) => s.kind !== "corridor").map((s) => ({ x: s.x0 * 16, y: s.y0 * 16, w: s.w * 16, h: s.h * 16 }))) {
     p.rect(l.ox + r.x + r.w, l.oy + r.y + 6, 5, r.h, C.shadow, 0.25);
     p.rect(l.ox + r.x + 6, l.oy + r.y + r.h, r.w, 4, C.shadow, 0.25);
   }
@@ -124,11 +121,44 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
   g.save();
   g.translate(l.ox, l.oy);
 
+  // ------------------------------------------------ paths: the street walkway, the amenity lane, the alley
+  const pathRect = (x: number, y: number, w: number, h: number) => {
+    p.rect(x, y, w, h, C.path);
+    for (let i = 0; i < (w * h) / 40; i++) p.rect(x + Math.floor(R() * (w - 2)), y + Math.floor(R() * (h - 1)), 2, 1, C.pathD);
+  };
+  const street = roomOf(l, "corridor");
+  const hasBack = (r: Room) => r.kind === "lead" || r.kind === "review" || r.kind === "gym" || r.kind === "game";
+  const amenities = l.rooms.filter((r) => r.kind === "cafe" || r.kind === "gym" || r.kind === "game");
+  if (street) {
+    pathRect(0, (street.y0 + 1) * 16, l.W * 16, 16);
+    const logo = config.project.name.toUpperCase().slice(0, 12);
+    text(p, logo, 24, (street.y0 + 1) * 16 + 3, C.pathD, 2);
+  }
+  if (amenities.length) {
+    const laneY = Math.max(...amenities.map((r) => r.y0 + r.h)) * 16;
+    const laneX1 = Math.max(...amenities.map((r) => r.x0 + r.w)) * 16;
+    pathRect(0, laneY, laneX1, 16);
+    for (const [cx, cy] of l.crossings) {
+      const underDoor = l.rooms.some((r) => r.doors.some(([dx, dy]) => dx === cx && dy === cy - 1));
+      if (!underDoor) pathRect(cx * 16, laneY, 16, cy * 16 - laneY); // the alley down to the belt
+    }
+  }
+
   // ------------------------------------------------ floors
-  planks(bx + 16, by + 64, bw - 32, bh - 80);
-  const logo = config.project.name.toUpperCase().slice(0, 12);
-  const corridor = roomOf(l, "corridor");
-  if (corridor) text(p, logo, Math.round(bw / 2 - textW(logo, 2) / 2), (corridor.y0 + 3) * 16 + 3, C.woodD, 2);
+  for (const r of l.rooms) {
+    const fx = (r.x0 + 1) * 16;
+    const fw = (r.w - 2) * 16;
+    const fy = (r.y0 + (hasBack(r) ? 4 : 1)) * 16;
+    const fh = (r.y0 + r.h - 1) * 16 - fy;
+    if (r.kind === "lead" || r.kind === "review" || r.kind === "department") planks(fx, fy, fw, fh);
+    if (r.kind === "gym") {
+      p.rect(fx, fy, fw, fh, C.grate);
+      for (let y = fy; y < fy + fh; y += 16) p.rect(fx, y, fw, 1, C.grateL);
+    }
+    if (r.kind === "game") {
+      for (let ty = 0; ty * 8 < fh; ty++) for (let tx = 0; tx * 8 < fw; tx++) p.rect(fx + tx * 8, fy + ty * 8, 8, 8, (tx + ty) % 2 ? C.rugPD : C.rugP);
+    }
+  }
 
   // lead carpet + stand-up rug (lead office coordinates, shifted to the building)
   g.save();
@@ -175,17 +205,14 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
     }
   }
 
-  // ------------------------------------------------ walls: building shell, then rooms
-  backWall(bx, by, bw);
-  wallRun(bx, by, 16, bh);
-  wallRun(bx + bw - 16, by, 16, bh);
-  wallRun(bx, by + bh - 16, bw, 16);
-  for (const r of l.rooms) if (r.kind === "lead" || r.kind === "review" || r.kind === "department") roomWalls(r);
+  // ------------------------------------------------ walls, doors, signs (the café draws its own)
   for (const r of l.rooms) {
-    if (r.kind === "cafe" || r.kind === "server" || (r.kind === "corridor" && r.id !== "corridor")) continue;
+    if (r.kind === "cafe" || r.kind === "server" || r.kind === "corridor") continue;
+    if (hasBack(r)) backWall(r.x0 * 16, r.y0 * 16, r.w * 16);
+    roomWalls(r, hasBack(r));
     for (const d of r.doors) doorGap(d, d[0] === r.x0 || d[0] === r.x0 + r.w - 1);
+    if (r.label) roomSign(p, r.label.toUpperCase(), (r.x0 + r.w / 2) * 16, r.y0 * 16 + 3);
   }
-  for (const r of l.rooms) if (r.kind === "department" && r.label) roomSign(p, r.label.toUpperCase(), (r.x0 + r.w / 2) * 16, r.y0 * 16 + 3);
 
   // ------------------------------------------------ server building
   if (server) {
@@ -285,7 +312,7 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
     wallRun(0, 16, 16, ch - 16);
     wallRun(cw - 16, 16, 16, ch - 16);
     wallRun(0, ch - 16, cw, 16);
-    roomSign(p, "CAFE", cw / 2, 3);
+    roomSign(p, cafe.label ?? "CAFETERIA", cw / 2, 3);
     disc(p, L - 8, 36, 8, C.ink);
     disc(p, L - 8, 36, 7, C.white);
     box(p, L + 63, 19, 66, 34, C.white);
@@ -316,7 +343,31 @@ export function buildStatic(l: OfficeLayout, config: HqConfig): HTMLCanvasElemen
     box(p, right + 2, 118, 12, 4, "#7a55b0");
     plant(p, right + 8, ch - 20, false);
     g.restore();
-    for (const d of cafe.doors) doorGap(d, true);
+    for (const d of cafe.doors) doorGap(d, d[0] === cafe.x0 || d[0] === cafe.x0 + cafe.w - 1);
+  }
+  // ------------------------------------------------ gym + game room (amenity-local tiles, see layout.ts)
+  const gym = roomOf(l, "gym");
+  if (gym) {
+    const at = (x: number, y: number): [number, number] => [(gym.x0 + x) * 16, (gym.y0 + y) * 16];
+    treadmill(p, ...at(1, 4));
+    treadmill(p, ...at(4, 4));
+    weightRack(p, ...at(8, 4));
+    ellipse(p, ...at(4, 10), 26, 9, C.rugGD); // mat
+    benchPress(p, ...at(2, 8));
+    plant(p, ...at(9, 11), false);
+  }
+  const game = roomOf(l, "game");
+  if (game) {
+    const at = (x: number, y: number): [number, number] => [(game.x0 + x) * 16, (game.y0 + y) * 16];
+    poolTable(p, ...at(2, 5));
+    pingPong(p, ...at(6, 8));
+    arcadeCabinet(p, ...at(7, 4), "#5b3a8e");
+    arcadeCabinet(p, ...at(8, 4), C.blue);
+    arcadeCabinet(p, ...at(9, 4), C.red);
+    const [bx1, by1] = at(1, 8);
+    beanbag(p, bx1 + 8, by1 + 8, "#e05a47", "#b8443a");
+    beanbag(p, bx1 + 24, by1 + 10, "#3fa7a0", "#2f817c");
+    beanbag(p, bx1 + 40, by1 + 8, "#f2b33d", "#c88d22");
   }
   for (const [x, y] of l.benches) bench(p, x * 16, y * 16);
 
