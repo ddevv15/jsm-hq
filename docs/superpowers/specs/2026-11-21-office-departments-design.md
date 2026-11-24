@@ -1,6 +1,7 @@
 # Office departments: a main building with grounds
 
 Status: design, approved approach (room blocks). Date: 2026-11-21.
+**Revised 2026-11-24:** the product owner saw the main building, then a throwaway campus spike, and chose a **stacked campus** (see "Revision: stacked campus" below). That section replaces "The layout (decided)" and the zoom limit; everything else stands.
 
 ## Why
 
@@ -122,3 +123,34 @@ D = front door (left wall)   S = side door to the grounds
 - Exact positions of furniture inside each room, and of benches and trees on the grounds.
 - Whether the layout code splits into several files under `src/office/layout/`.
 - Name sign wording and size (for example "ENGINEERING", or "ENG" when the room is narrow).
+
+## Revision: stacked campus (2026-11-24, decided)
+
+The product owner picked this after seeing a throwaway spike (`spike/campus`), and added a game room.
+
+```
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ lawn ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~ ┌ Cafeteria ┐  ┌ Gym ┐  ┌ Game room ┐                            ~
+~ └────┬──────┘  └──┬──┘  └─────┬─────┘     benches on the lane     ~
+~ ┌ HQ (lead office) ┐ ║ ┌ Review ┐  ┌ Server ┐                     ~
+~ └───────┬──────────┘ ║ └──┬─────┘  └───▲────┘                     ~
+~ ══[+]═══════════════[+]══[+]═══[gate]══╝   PR belt                ~
+~   walkway (drop points)                                           ~
+~ ┌ Engineering ┐  ┌ Quality ┐                                      ~
+~ └─────────────┘  └─────────┘   ← departments, two rows            ~
+~ ┌ Design & Docs ┐  ┌ Ops ┐                                        ~
+~ └───────────────┘  └─────┘                                        ~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+```
+
+- **Every place is its own building** on the lawn, two tiles of lawn apart. There is no main building any more.
+- **Amenity row (top):** cafeteria (today's pantry furniture), gym and game room. Doors face down onto a lawn lane with benches. Idle robots go to the cafeteria for coffee and wander in all three.
+- **Street row:** HQ (the lead office, unchanged inside), the review building (PR board; only with review on) and the server building (only with environments; it sits above the belt, which climbs into it). Doors face the street.
+- **The street:** the PR belt, then a walkway under it. Robots cross the belt only on plates: at HQ's and the review building's doors, and at the alley next to HQ, which leads up to the amenities. The gate sits on the belt in front of the review building, to the right of every drop point.
+- **Department buildings:** cubicles only, one per non-empty department, split into two rows below the street (the first row takes departments until it holds about half the total width). Doors in the top wall above each desk column; the second row walks up the lawn alleys to the walkway.
+- **Game room (new art):** a pool table, a ping-pong table, two arcade cabinets and beanbags, drawn in the existing pixel style through `Pen` with palette colours.
+- **Gym:** treadmills, a weight rack, a bench press and a mat, same rules.
+
+**Zoom (replaces the one-step limit):** the default view shows the whole campus. The camera fits exactly (cropping at most the lawn margin), re-fits whenever the campus size changes (team or workflow change), and may zoom out to one device pixel per art pixel (0.5x on a Retina screen, 1x otherwise). In a 1440×900 Retina window, the 3-agent demo opens at 1x or more; bigger teams may open at 0.5x. *(My call: a campus with four departments can't fit 1440×900 at 1x; the alternative is cropping it.)*
+
+**Left to the builder:** exact gaps and offsets, furniture positions, sign wording.
