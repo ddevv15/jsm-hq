@@ -2,6 +2,8 @@
 // eased fly-to. Positions are rounded so pixels stay crisp.
 
 import type { Container } from "pixi.js";
+import { MARGIN, TS } from "../layout/layout";
+import { fitZoom, MAX_ZOOM, minZoom } from "./zoom";
 
 export interface Insets {
   left: number;
@@ -10,12 +12,11 @@ export interface Insets {
   bottom: number;
 }
 
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 6;
 // Zoom moves in steps of 1/devicePixelRatio, so zoom × dpr is always a whole
 // number and every art pixel covers whole device pixels (1.5x is crisp on Retina).
 const DPR = Math.max(1, Math.round(window.devicePixelRatio || 1));
 const STEP = 1 / DPR;
+const MIN_ZOOM = minZoom(DPR); // one device pixel per art pixel
 const snapZoom = (z: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(z / STEP) * STEP));
 const snapPx = (v: number) => Math.round(v * DPR) / DPR;
 const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
@@ -51,11 +52,9 @@ export class Camera {
   fitZoom(): number {
     const { w, h } = this.viewport();
     const i = this.insets();
-    const fw = Math.max(100, w - i.left - i.right);
-    const fh = Math.max(100, h - i.top - i.bottom);
-    // Let the lawn margin crop a little so we land on a bigger step.
-    const ratio = Math.min(fw / this.worldW, fh / this.worldH) + 0.2;
-    return snapZoom(Math.floor(ratio / STEP) * STEP);
+    const free = { w: Math.max(100, w - i.left - i.right), h: Math.max(100, h - i.top - i.bottom) };
+    // The lawn margin may be cropped, never a building.
+    return snapZoom(fitZoom(free, { w: this.worldW, h: this.worldH }, MARGIN * TS, DPR));
   }
 
   home(animate = true) {

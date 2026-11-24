@@ -26,11 +26,14 @@ export function syncScene(s: OfficeScene, snap: OfficeSnapshot, epoch: number) {
   const key = layoutKey(snap.config, snap.environments);
   const firstLayout = !s.layout;
   if (!s.layout || s.layout.key !== key) {
+    const prev = s.layout;
     const l = generateLayout(snap.config, snap.environments);
     s.layout = l;
     s.belt = new BeltPath(l);
     s.setStatic(l, snap.config);
+    // Fit the whole office on the first layout, and again whenever its size changes.
     if (firstLayout) s.camera.home(false);
+    else if (prev && (prev.worldW !== l.worldW || prev.worldH !== l.worldH)) s.camera.home();
     for (const b of s.bots.values()) {
       if (b.errand?.kind === "drop") b.errand.onArrive();
       b.errand = null;

@@ -4,6 +4,7 @@ import { presets } from "../src/data/mock/presets";
 import type { Environment, HqConfig } from "../src/data/types";
 import { dropDeadline, walkSeconds } from "../src/office/actors/walk";
 import type { Tile } from "../src/office/engine/path";
+import { fitZoom } from "../src/office/engine/zoom";
 import { departmentOf, groupByDepartment } from "../src/office/layout/departments";
 import { amenitySpots, generateLayout, layoutKey, type OfficeLayout, type Room } from "../src/office/layout/layout";
 
@@ -176,6 +177,25 @@ check("drop deadline: long walk gets walk time + 2 s", Math.abs(dropDeadline(10,
 
 const twelve = withTeam(deployPreset, team(12, ["Developer"]));
 check("12 developers → one Engineering building", generateLayout(twelve, envsFor(twelve)).rooms.filter((r) => r.kind === "department").length === 1);
+
+// ------------------------------------------------------------ camera fit (campus revision)
+// 1440×900 window minus the HUD: team panel on the left, top bar above.
+const FREE = { w: 1140, h: 836 };
+const MARGIN_PX = 48;
+for (const p of presets) {
+  const l = generateLayout(p.config, envsFor(p.config));
+  const world = { w: l.worldW, h: l.worldH };
+  const z2 = fitZoom(FREE, world, MARGIN_PX, 2);
+  const shows = (world.w - 2 * MARGIN_PX) * z2 <= FREE.w && (world.h - 2 * MARGIN_PX) * z2 <= FREE.h;
+  check(`${p.id}: whole campus visible on a Retina 1440×900`, shows, `zoom ${z2}, world ${world.w}×${world.h}`);
+  check(`${p.id}: Retina zoom is a half step`, z2 * 2 === Math.round(z2 * 2));
+  check(`${p.id}: 1× screens never go below 1x`, fitZoom(FREE, world, MARGIN_PX, 1) >= 1);
+}
+{
+  const l = generateLayout(presets[0].config, envsFor(presets[0].config));
+  check("3-agent demo opens at 1x or more on Retina", fitZoom(FREE, { w: l.worldW, h: l.worldH }, MARGIN_PX, 2) >= 1);
+}
+check("small world caps at 6x", fitZoom(FREE, { w: 100, h: 80 }, 0, 2) === 6);
 
 const cfg = presets[0].config;
 const someWorker = cfg.team.find((a) => !a.isLead)!.id;
