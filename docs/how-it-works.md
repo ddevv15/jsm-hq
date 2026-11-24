@@ -25,7 +25,7 @@ What HQ does behind the office: where agents work, how they talk, what reaches G
 
 New teams get names from The Office: Michael leads, then Dwight, Jim, Pam and so on. Rename them any time.
 
-In the office, the lead has its own office and workers sit in department rooms by role: Engineering (Developer, Frontend, Backend), Quality (QA, Code Reviewer, Security), Design & Docs (Designer, Docs) and Ops (DevOps). Any other role sits in Engineering. The café and the server room are separate buildings on the lawn.
+The office is a small campus. The lead works in HQ, and workers sit in their department's building by role: Engineering (Developer, Frontend, Backend), Quality (QA, Code Reviewer, Security), Design & Docs (Designer, Docs) and Ops (DevOps). Any other role sits in Engineering. Pull requests ride the belt along the street to the review building, and on to the server building when you deploy. When agents are idle they head to the cafeteria, the gym or the game room.
 
 ## Workspaces and sessions
 
