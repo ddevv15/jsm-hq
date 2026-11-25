@@ -53,6 +53,12 @@ export function mockSetup(): SetupState {
   };
 }
 
+/** Sites the demo shows as blocked, per worker (first, second). */
+const DEMO_BLOCKED: string[][] = [
+  ["mcp.notion.com:443", "mcp.figma.com:443", "docs.arcjet.com:443"],
+  ["registry.yarnpkg.com:443", "api.resend.com:443"],
+];
+
 /** What the mock "sbx" reports: domain rules mirror the saved lists. */
 export function mockSbx(team: AgentConfig[], project: string): SbxState {
   const agents: SbxState["agents"] = {};
@@ -68,10 +74,13 @@ export function mockSbx(team: AgentConfig[], project: string): SbxState {
       keys: a.isLead ? [] : ["openai"],
       envFile: { path: `~/.jsmhq/${slug(project)}/${a.id}.env`, exists: !a.isLead },
       syncError: null,
-      // Demo: the first worker's sandbox blocked a few things (claude.ai connectors and a docs site).
-      approvals: !a.isLead && team.filter((t) => !t.isLead)[0]?.id === a.id
-        ? ["mcp.notion.com:443", "mcp.figma.com:443", "docs.arcjet.com:443"].map((host, i) => ({ id: `network:demo-${a.id}-${i}`, host, detail: "no matching allow rule (default deny)" }))
-        : [],
+      // Demo: the first two workers' sandboxes blocked a few things (claude.ai connectors, docs sites),
+      // so Action items shows "Allow all blocked sites" across agents.
+      approvals: (DEMO_BLOCKED[team.filter((t) => !t.isLead).findIndex((t) => t.id === a.id)] ?? []).map((host, i) => ({
+        id: `network:demo-${a.id}-${i}`,
+        host,
+        detail: "no matching allow rule (default deny)",
+      })),
     };
   }
   return { basePolicy: "balanced", proxy: null, globalKeys: ["anthropic", "github"], agents, checkedAt: now() };

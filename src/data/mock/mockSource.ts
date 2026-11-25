@@ -1,6 +1,6 @@
 import { agentPalette } from "../../theme/tokens";
 import type { OfficeDataSource, OfficeEvent, SimSpeed } from "../source";
-import { stackDomains } from "../stack";
+import { detectStack, stackDomains } from "../stack";
 import { HOST_TERMINAL, type AccessRequest, AgentConfig, AgentPatch, Board, NewAgentInput, ProjectConfig, SandboxSettings, WorkflowPatch } from "../types";
 import { defaultPresetId, presets, type Preset } from "./presets";
 import { Simulation } from "./simulation";
@@ -176,6 +176,18 @@ export function createMockSource(): OfficeDataSource {
       world.activity("session", id, `${world.name(id)}'s session stopped`);
     },
 
+    restartAgent(id) {
+      const st = world.status(id);
+      if (!st || st.session.state !== "running") return;
+      // The demo's simulated work keeps going: stopping it here would strand the agent's task.
+      world.setStatus(id, { session: { ...st.session, state: "starting", detail: "Restarting…" } });
+      world.activity("session", id, `Restarting ${world.name(id)}`);
+      world.after(1.5, () => {
+        const now = world.status(id);
+        if (now) world.setStatus(id, { session: { ...now.session, state: "running", detail: null } });
+      });
+    },
+
     recreateSandbox(id) {
       const st = world.status(id);
       const r = world.cfg(id)?.sandbox.resources;
@@ -245,6 +257,15 @@ export function createMockSource(): OfficeDataSource {
       if (!agent) return;
       Object.assign(agent, patch);
       world.configChanged();
+    },
+
+    detectStack() {
+      // Demo: a monorepo with a Next.js app and a Hono API, Clerk, Stripe and PostHog.
+      const stack = detectStack([
+        { where: "apps/web", deps: ["next", "react", "@clerk/nextjs", "posthog-js"] },
+        { where: "apps/api", deps: ["hono", "stripe"] },
+      ]);
+      listener?.({ type: "stack.detected", stack });
     },
 
     inspectWorkspace(id) {

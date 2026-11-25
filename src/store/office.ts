@@ -24,6 +24,7 @@ interface OfficeState {
   presets: DataPreset[] | null;
   live: boolean; // connected to a real HQ server (vs. the demo mock)
   workspaceInfo: Record<string, WorkspaceInfo>; // answers to inspectWorkspace
+  stackDetected: StackConfig | null; // the last answer to detectStack
   connection: ConnectionStatus;
   source: OfficeDataSource;
 }
@@ -64,6 +65,7 @@ export const useOffice = create<OfficeState>(() => ({
   presets: source.dev?.presets ?? null,
   live: token !== null,
   workspaceInfo: {},
+  stackDetected: null,
   connection: "connecting",
   source,
 }));
@@ -83,6 +85,7 @@ function reduce(snap: OfficeSnapshot, e: OfficeEvent): OfficeSnapshot {
     case "snapshot":
       return e.snapshot;
     case "workspace.info":
+    case "stack.detected":
       return snap;
     case "sbx.updated":
       return { ...snap, sbx: e.sbx };
@@ -127,6 +130,10 @@ function handle(e: OfficeEvent) {
     useOffice.setState((s) => ({ terminalChunks: s.terminalChunks + 1 }));
     return;
   }
+  if (e.type === "stack.detected") {
+    useOffice.setState({ stackDetected: e.stack });
+    return;
+  }
   if (e.type === "workspace.info") {
     useOffice.setState((s) => ({ workspaceInfo: { ...s.workspaceInfo, [e.info.agentId]: e.info } }));
     return;
@@ -162,6 +169,7 @@ export const officeActions = {
   resizeTerminal: (agentId: string, cols: number, rows: number) => source.resizeTerminal(agentId, cols, rows),
   startAgent: (id: string) => source.startAgent(id),
   stopAgent: (id: string) => source.stopAgent(id),
+  restartAgent: (id: string) => source.restartAgent(id),
   openWorkspace: (id: string) => source.openWorkspace(id),
   recreateSandbox: (id: string) => source.recreateSandbox(id),
   openShell: (id: string) => source.openShell(id),
@@ -198,6 +206,10 @@ export const officeActions = {
   removeMcp: (name: string) => source.removeMcp(name),
   setAgentMcp: (agentId: string, names: string[]) => source.setAgentMcp(agentId, names),
   resolveAccess: (requestId: string, decision: AccessDecision) => source.resolveAccess(requestId, decision),
+  detectStack: () => {
+    useOffice.setState({ stackDetected: null });
+    source.detectStack();
+  },
   simulateAccessRequest: () => source.dev?.simulateAccessRequest(),
   setSpeed(speed: SimSpeed) {
     source.dev?.setSpeed(speed);

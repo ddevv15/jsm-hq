@@ -71,6 +71,7 @@ Each agent in Sandbox mode runs in its own [Docker Sandbox](https://docs.docker.
 - **Resize any panel.** Drag a panel's left edge to make it wider (HQ remembers the width in this browser; double-click the edge to reset), or press the square button to fill the screen. Terminals resize with it, so full-screen tools that need more rows fit.
 - **Shell tab.** A shell inside the agent's sandbox (or its folder in Local mode), beside the agent.
 - **Terminal** (top bar). Your own shell on this machine, not in a sandbox: in your repo, an agent's folder, or any folder you type. Be careful in an agent's folder while it's working: it's the same copy of the repo the agent is editing.
+- **Copy and paste.** On a Mac, use Cmd+C and Cmd+V. On Windows and Linux, Ctrl+C copies when text is selected (otherwise it stops the running program, as usual), Ctrl+Shift+C always copies, and Ctrl+V pastes.
 - **Links** in any terminal open in a new tab when you click them, including long URLs that wrap onto the next line. If your browser blocks the new tab, HQ copies the link instead.
 - **Opening the browser.** Tools in a sandbox that open a web page (for example a CLI sign-in) open it in your browser, if that website is allowed for the sandbox. If it isn't, the tool prints the link: click it in the terminal.
 - **Ports.** When a program in the Shell tab prints a `localhost:<port>` address, HQ offers to **Forward port**: then `localhost:<port>` on your machine reaches the sandbox. CLI sign-ins that redirect your browser back to `localhost` need this. You can also forward any port, and stop forwarding, in the agent's **Sandbox** tab. The program inside the sandbox must listen on all addresses (`0.0.0.0`), not only `127.0.0.1`.
@@ -89,6 +90,8 @@ Mark a request **Done** (with an optional note) or **Dismiss** it, and HQ tells 
 ## Your stack
 
 Optional. In Settings → Stack (or during the welcome), pick what the project uses: frameworks, plus tools for auth, payments, database, analytics and security. You can also add your own under "Other".
+
+For an existing repo, **Detect from repo** reads `package.json` (and workspace packages in a monorepo) and suggests what it finds, such as Next.js in `apps/web`, Clerk or Stripe. It only fills what you haven't chosen, and saves nothing until you press Add.
 
 - Agents see the stack in their instructions.
 - Each tool's official agent skills are installed into the agents' folders (`.claude/skills`, `.agents/skills`), kept out of git.
@@ -110,7 +113,7 @@ Unticking a server takes effect when that agent's sandbox is recreated, because 
 
 ## App variables and keys
 
-- **App variables** (Settings → Sandbox → App variables) become environment variables in the agent's session and its Shell tab. They're not a `.env` file in the project. Agents are told the names, never the values. Restart the agent after changing them.
+- **App variables** (Settings → Sandbox → App variables) become environment variables in the agent's session and its Shell tab. They're not a `.env` file in the project. Agents are told the names, never the values. Press **Restart** in the agent's drawer after changing them.
 - **Service keys** (Settings → Sandbox) go to Docker Sandboxes' secret store. A sandbox's proxy adds the key to matching requests, so the key itself never enters the VM.
 
 HQ never stores key values and never reads your env files.
@@ -124,7 +127,7 @@ HQ never stores key values and never reads your env files.
 | Font: Pixel, Clean or Mono | Settings → Project | Right away, in this browser only. The office itself stays pixel. |
 | Sound when an agent needs you (on by default; the tab title also shows how many are waiting) | Settings → Project | Right away, in this browser only |
 | Review tool | Settings → Workflow | Right away |
-| Agents, roles, CLI, mode | Settings → Team | Next time the agent starts |
+| Agents, roles, CLI, mode | Settings → Team | Next time the agent starts, or press **Restart** in its drawer |
 | CPU and memory | Settings → Sandbox | After **Recreate sandbox** |
 | MCP servers per agent | Settings → MCP | Right away for new servers |
 

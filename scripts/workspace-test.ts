@@ -130,6 +130,17 @@ const tests: [string, () => Promise<void>][] = [
       }
     },
   ],
+  [
+    "a fork: gh in the agent's clone targets the fork, not the original repo",
+    async () => {
+      const fork = join(tmp, "fork");
+      host(tmp, "clone", "--quiet", source, fork);
+      host(fork, "remote", "set-url", "origin", "https://github.com/someone/fork-of-project.git");
+      const dir = await ensureWorkspace(agent("forked"), SLUG, await detectRepo(fork));
+      same("origin", sandbox(dir, "config", "--get", "remote.origin.url"), "https://github.com/someone/fork-of-project.git\n");
+      same("gh's default repo", sandbox(dir, "config", "--get", "remote.origin.gh-resolved"), "base\n");
+    },
+  ],
 ];
 
 let failed = false;

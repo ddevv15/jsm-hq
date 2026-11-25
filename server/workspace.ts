@@ -41,6 +41,12 @@ export async function ensureWorkspace(agent: AgentConfig, projectSlug: string, r
     await run("git", ["config", "core.autocrlf", "input"], { cwd: dir });
   }
   // A local clone points origin at the folder; agents need the real remote to push.
-  if (repo.originUrl) await run("git", ["remote", "set-url", "origin", repo.originUrl], { cwd: dir });
+  if (repo.originUrl) {
+    await run("git", ["remote", "set-url", "origin", repo.originUrl], { cwd: dir });
+    // In a fork, gh targets the original repo by default, so an agent's `gh pr create` (and
+    // pr view, comment, merge) would land on someone else's project. Pin gh to origin, the way
+    // `gh repo set-default` does, without a network call.
+    await run("git", ["config", "remote.origin.gh-resolved", "base"], { cwd: dir });
+  }
   return dir;
 }

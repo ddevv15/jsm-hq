@@ -48,6 +48,29 @@ function openOrCopy(href: string, say: (text: string) => void) {
     .catch(() => say("Your browser blocked the new tab. Select the link and copy it."));
 }
 
+/** macOS copies and pastes with Cmd, which never reaches the terminal as a key. */
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+/**
+ * Copy and paste on Windows and Linux, where Ctrl+C and Ctrl+V are also terminal keys. Like
+ * Windows Terminal and VS Code: Ctrl+C copies when text is selected and interrupts otherwise;
+ * Ctrl+Shift+C always copies; Ctrl+V and Ctrl+Shift+V paste. Returns true when it handled the key.
+ */
+function clipboardKey(e: KeyboardEvent, term: Terminal): boolean {
+  if (IS_MAC || !e.ctrlKey || e.altKey || e.metaKey) return false;
+  const key = e.key.toLowerCase();
+  if (key === "c" && (e.shiftKey || term.hasSelection())) {
+    if (e.type === "keydown") {
+      const text = term.getSelection();
+      // Clear the selection once copied, so the next Ctrl+C interrupts again.
+      if (text) void navigator.clipboard?.writeText(text).then(() => term.clearSelection(), () => {});
+    }
+    return true;
+  }
+  // Leave Ctrl+V to the browser: its paste event reaches the terminal, with no clipboard permission prompt.
+  return key === "v";
+}
+
 /**
  * A real xterm.js terminal fed by the agent's (mock) output stream.
  * Keystrokes here reach a real process, so it only takes the keyboard after a click (or Tab),
@@ -132,6 +155,7 @@ export function TerminalView({ agentId, autoFocus = false }: { agentId: string; 
       // Shift+Enter: xterm.js sends a plain Enter (\r), which submits. Send Alt+Enter (ESC \r)
       // instead, which Claude Code and Codex read as "new line".
       term.attachCustomKeyEventHandler((e) => {
+        if (clipboardKey(e, term)) return false;
         if (e.key !== "Enter" || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return true;
         if (e.type === "keydown") officeActions.sendTerminalInput(agentId, "\x1b\r");
         e.preventDefault();
